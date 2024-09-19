@@ -29,7 +29,7 @@ const channelMentions = {
   'promo': '<@&ID_DU_ROLE_PROMO>'
 };
 
-// Amazon URLs for different categories, filtered for products under 1€
+// Constantes pour les seuils et URLs d'Amazon
 const AMAZON_URLS = {
   electronics: 'https://www.amazon.fr/s?k=electronique&rh=p_36%3A-100',
   beauty: 'https://www.amazon.fr/s?k=beauté&rh=p_36%3A-100',
@@ -37,10 +37,9 @@ const AMAZON_URLS = {
   books: 'https://www.amazon.fr/s?k=livres&rh=p_36%3A-100',
 };
 
-// Constantes de vérification des produits Amazon
-const PRICE_THRESHOLD = 2;
-const PRICE_THRESHOLD_1_EURO = 1;
-const PROMO_THRESHOLD = 10;
+const PRICE_THRESHOLD = 2; 
+const PRICE_THRESHOLD_1_EURO = 1; 
+const PROMO_THRESHOLD = 5;  // Seuil abaissé pour capter plus de promotions
 const EDP_THRESHOLD = 90;
 const DISCOUNT_THRESHOLD = 80;
 const OTHER_SELLERS_THRESHOLD = 20;
@@ -132,16 +131,20 @@ client.once('ready', () => {
   monitorAmazonProducts(logsChannel);
 });
 
-// Fonction pour effectuer la requête Amazon avec gestion des erreurs et des tentatives
+// Fonction pour effectuer la requête Amazon avec gestion des proxys et des erreurs
 async function fetchAmazonPage(url, logsChannel, retries = 0) {
   try {
+    const proxy = {
+      host: 'PROXY_HOST', // Remplace par une adresse proxy valide
+      port: 'PROXY_PORT'  // Remplace par le port de ton proxy
+    };
+
     const options = {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36',
         'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-      }
+      },
+      proxy
     };
 
     const { data } = await axios.get(url, options);
@@ -185,6 +188,7 @@ async function monitorAmazonProducts(logsChannel) {
         const productUrl = 'https://www.amazon.fr' + $(element).find('h2 a').attr('href');
         const productImage = $(element).find('img').attr('src');
 
+        // Calcul du prix total avec livraison (si applicable)
         let shippingCost = 0;
         const shippingText = $(element).find('.a-color-secondary .a-size-small').text();
         if (shippingText.toLowerCase().includes('livraison')) {
@@ -203,16 +207,19 @@ async function monitorAmazonProducts(logsChannel) {
             addProductToCache(productUrl);
           }
 
+          // Vérification pour les produits à moins de 2 €
           if (totalPrice <= PRICE_THRESHOLD && discountPercentage >= DISCOUNT_THRESHOLD && !isProductInCache(productUrl)) {
             products.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
           }
 
+          // Vérification pour les produits à 1 € ou moins
           if (totalPrice <= PRICE_THRESHOLD_1_EURO && !isProductInCache(productUrl)) {
             oneEuroProducts.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
           }
 
+          // Vérification pour les erreurs de prix (EDP)
           if (discountPercentage >= EDP_THRESHOLD && !isProductInCache(productUrl)) {
             edpProducts.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
