@@ -13,7 +13,6 @@ const client = new Client({
   ]
 });
 
-
 // Rôles réservés
 const ADMIN_ROLE_ID = 'ID_DU_ROLE_ADMIN'; // Remplacez par l'ID du rôle administrateur
 const PREMIUM_ROLE_ID = 'ID_DU_ROLE_PREMIUM'; // Remplacez par l'ID du rôle premium
@@ -249,36 +248,19 @@ function stopMonitoring() {
 // Sauvegarder le cache à intervalles réguliers
 setInterval(saveCache, 60000); // Sauvegarder toutes les minutes
 
-// Surveillance des produits Amazon, incluant la pagination et les ventes flash
+// Surveillance des produits Amazon
 async function monitorAmazonProducts() {
-  const promises = AMAZON_URLS.map(async (url) => {
+  const promises = [...productCache.keys()].map(async (url) => {
     try {
-      await throttleRequests();
-      await monitorPage(url, 1, MAX_PAGES); // Limite à MAX_PAGES pages pour éviter des boucles infinies
+      const html = await fetchAmazonPage(url);
+      if (html) {
+        await monitorPage(url, 1, MAX_PAGES);
+      }
     } catch (error) {
       logMessage(`Erreur lors de la récupération des produits de l'URL ${url}: ${error.message}`);
     }
   });
-  await Promise.all(promises); // Exécuter toutes les requêtes en parallèle
-}
-
-// Fonction pour ajuster l'intervalle de vérification selon l'URL
-function getCheckInterval(url) {
-  if (url.includes('ventes+flash')) {
-    return CHECK_INTERVAL_VENTE_FLASH;
-  } else if (url.includes('erreur+prix')) {
-    return CHECK_INTERVAL_EDP;
-  }
-  return CHECK_INTERVAL_OTHER;
-}
-
-// Fonction pour limiter les requêtes (throttling)
-async function throttleRequests() {
-  throttleCount++;
-  if (throttleCount >= THROTTLE_LIMIT) {
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Attendre une seconde après chaque batch
-    throttleCount = 0;
-  }
+  await Promise.all(promises);
 }
 
 // Fonction pour parcourir plusieurs pages de résultats Amazon
@@ -290,36 +272,28 @@ async function monitorPage(url, page, maxPages) {
   if (!html) return;
 
   const $ = cheerio.load(html);
-
+  
   $('.s-main-slot .s-result-item').each(async (i, element) => {
     const productTitle = $(element).find('h2 a span').text();
     const priceWholeText = $(element).find('.a-price-whole').text();
     const priceFractionText = $(element).find('.a-price-fraction').text();
     const price = parseFloat(`${priceWholeText.replace(/\s/g, '').replace(',', '.')}.${priceFractionText}`);
-    
+
     const oldPriceText = $(element).find('.a-text-price .a-offscreen').first().text();
     const oldPrice = parseFloat(oldPriceText.replace(/\s/g, '').replace(',', '.'));
     const productUrl = 'https://www.amazon.fr' + $(element).find('h2 a').attr('href');
     const productImage = $(element).find('img').attr('src');
 
-    let shippingCost = 0;
-    const shippingText = $(element).find('.a-color-secondary .a-size-small').text();
-    if (shippingText.toLowerCase().includes('livraison')) {
-      const shippingCostText = shippingText.match(/(\d+,\d+)/);
-      if (shippingCostText) shippingCost = parseFloat(shippingCostText[0].replace(',', '.'));
-    }
-    const totalPrice = price + shippingCost;
-
-    if (!isProductInCache(productUrl) && totalPrice && oldPrice) {
-      const discountPercentage = ((oldPrice - totalPrice) / oldPrice) * 100;
+    if (!isProductInCache(productUrl) && price && oldPrice) {
+      const discountPercentage = ((oldPrice - price) / oldPrice) * 100;
 
       // Envoi des notifications DM personnalisées si activées
       userNotifications.forEach(async (prefs, userId) => {
-        if (prefs.category.toLowerCase() === 'promo' && totalPrice >= prefs.minPrice && totalPrice <= prefs.maxPrice) {
+        if (prefs.category.toLowerCase() === 'promo' && price >= prefs.minPrice && price <= prefs.maxPrice) {
           try {
             const user = await client.users.fetch(userId);
             if (user) {
-              await user.send(`Produit intéressant détecté: **${productTitle}** - Prix: ${totalPrice.toFixed(2)}€\n[Voir sur Amazon](${productUrl})`);
+              await user.send(`Produit intéressant détecté: **${productTitle}** - Prix: ${price.toFixed(2)}€\n[Voir sur Amazon](${productUrl})`);
             }
           } catch (error) {
             logMessage(`Erreur lors de l'envoi du DM à l'utilisateur ${userId}: ${error.message}`);
@@ -327,58 +301,40 @@ async function monitorPage(url, page, maxPages) {
         }
       });
 
-      if (discountPercentage >= PROMO_THRESHOLD) {
-        sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'promo');
+      if (discountPercentage >= 10) {
+        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'promo');
       }
-      if (totalPrice <= PRICE_THRESHOLD) {
-        sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, '2euro');
-      }
-      if (totalPrice <= PRICE_THRESHOLD_1_EURO) {
-        sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, '1euro');
-      }
-      if (discountPercentage >= EDP_THRESHOLD) {
-        sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'EDP');
-      }
-
-      // Détection des ventes flash
-      const flashDealText = $(element).find('.dealBadge').text();
-      if (flashDealText.toLowerCase().includes('vente flash')) {
-        sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'vente_flash');
-      }
-
-      addProductToCache(productUrl, totalPrice);
+      // Ajoutez d'autres conditions ici pour 2euro, 1euro, EDP, etc.
+      addProductToCache(productUrl, price);
     }
   });
 
   // Vérifier s'il y a une page suivante et la parcourir si elle existe
   const nextPage = $('.s-pagination-next');
   if (nextPage && !nextPage.hasClass('s-pagination-disabled')) {
-    await monitorPage(url, page + 1, maxPages); // Passe à la page suivante
+    await monitorPage(url, page + 1, maxPages);
   }
 }
 
 // Surveillance des produits ajoutés manuellement avec `-add_deal`
 async function monitorDeals() {
-  setInterval(async () => {
-    for (const [url, maxPrice] of dealWatchList.entries()) {
-      try {
-        await throttleRequests();
-        const html = await fetchAmazonPage(url);
-        if (!html) continue;
+  for (const [url, maxPrice] of dealWatchList.entries()) {
+    try {
+      const html = await fetchAmazonPage(url);
+      if (!html) continue;
 
-        const $ = cheerio.load(html);
-        const priceWholeText = $('.a-price-whole').first().text();
-        const priceFractionText = $('.a-price-fraction').first().text();
-        const price = parseFloat(`${priceWholeText.replace(/\s/g, '').replace(',', '.')}.${priceFractionText}`);
-        
-        if (price <= maxPrice) {
-          sendProductToChannel('Produit surveillé', price.toFixed(2), maxPrice, 0, url, '', 'deal');
-        }
-      } catch (error) {
-        logMessage(`Erreur lors de la surveillance des deals: ${error.message}`);
+      const $ = cheerio.load(html);
+      const priceWholeText = $('.a-price-whole').first().text();
+      const priceFractionText = $('.a-price-fraction').first().text();
+      const price = parseFloat(`${priceWholeText.replace(/\s/g, '').replace(',', '.')}.${priceFractionText}`);
+
+      if (price <= maxPrice) {
+        sendProductToChannel('Produit surveillé', price.toFixed(2), maxPrice, 0, url, '', 'deal');
       }
+    } catch (error) {
+      logMessage(`Erreur lors de la surveillance des deals: ${error.message}`);
     }
-  }, CHECK_INTERVAL_OTHER);
+  }
 }
 
 // Fonction pour récupérer les pages Amazon avec gestion des erreurs
@@ -461,4 +417,5 @@ process.on('SIGINT', () => {
   process.exit();
 });
 
-client.login(process.env.TOKEN);
+loadCache(); // Charge le cache au démarrage
+client.login(process.env.TOKEN); // Assurez-vous que le token est défini dans un fichier .env
