@@ -234,4 +234,4 @@ function sendEmbed(channel, product, description) {
   }
 }
 
-client.login('MTI4NTkyNzU4Nzg2Mzk5MDI3Mg.G92Ara.6H0Ra9A97cyCPXA0UPVNrdaF-ZDl55XFoP24hw');
+client.login(process.env.TOKEN);
