@@ -13,22 +13,21 @@ const client = new Client({
 });
 
 const roleAssignments = {
-  '💰': 'ID_DU_ROLE_EDP',
-  '📦': 'ID_DU_ROLE_AUTRE_VENDEUR',
-  '🟢': 'ID_DU_ROLE_2EURO',
-  '🔵': 'ID_DU_ROLE_1EURO',
-  '🔥': 'ID_DU_ROLE_PROMO',
-  '⚡': 'ID_DU_ROLE_VENTE_FLASH' // Nouveau rôle pour les ventes flash
+  '💰': '1286277846754525194',
+  '📦': '1286277915515949096',
+  '🟢': '1286277613559742538',
+  '🔵': '1286277434450120714',
+  '🔥': '1286277883781709824',
+  '⚡': '1286306479275511890' // Nouveau rôle pour les ventes flash
 };
 
 const channelMentions = {
-  'EDP': '<@&ID_DU_ROLE_EDP>',
-  'Autre_vendeur': '<@&ID_DU_ROLE_AUTRE_VENDEUR>',
-  '2euro': '<@&ID_DU_ROLE_2EURO>',
-  '1euro': '<@&ID_DU_ROLE_1EURO>',
-  'promo': '<@&ID_DU_ROLE_PROMO>',
-  'vente_flash': '<@&ID_DU_ROLE_VENTE_FLASH>', // Mention pour les ventes flash
-  'logs': '<@&ID_DU_ROLE_LOGS>' // Log
+  'EDP': '<@edp>',
+  'Autre_vendeur': '<@autre vendeur>',
+  '2euro': '<@deal2>',
+  '1euro': '<@deal1>',
+  'promo': '<@promo>',
+  'vente_flash': '<@vente flah>'
 };
 
 // URLs de recherche sur Amazon
@@ -36,19 +35,35 @@ const AMAZON_URLS = [
   'https://www.amazon.fr/s?k=promo',
   'https://www.amazon.fr/s?k=electronique',
   'https://www.amazon.fr/s?k=jouets',
-  'https://www.amazon.fr/s?k=ventes+flash' // Nouvelle URL pour les ventes flash
+  'https://www.amazon.fr/s?k=ventes+flash', // Ventes flash
+  'https://www.amazon.fr/s?k=beauté',
+  'https://www.amazon.fr/s?k=sport',
+  'https://www.amazon.fr/s?k=maison',
+  'https://www.amazon.fr/s?k=mode',
+  'https://www.amazon.fr/s?k=livres',
+  'https://www.amazon.fr/s?k=informatique',
+  'https://www.amazon.fr/s?k=outillage',
+  'https://www.amazon.fr/s?k=accessoires+téléphone',
+  'https://www.amazon.fr/s?k=bricolage',
+  'https://www.amazon.fr/s?k=jardinage',
+  'https://www.amazon.fr/s?k=alimentaire',
+  'https://www.amazon.fr/s?k=audio+vidéo',
+  'https://www.amazon.fr/s?k=photo',
+  'https://www.amazon.fr/s?k=enfant',
+  'https://www.amazon.fr/s?k=cuisine',
+  'https://www.amazon.fr/s?k=montres'
 ];
 
 const PRICE_THRESHOLD = 2;
 const PRICE_THRESHOLD_1_EURO = 1;
-const PROMO_THRESHOLD = 5;
+const PROMO_THRESHOLD = 30;
 const EDP_THRESHOLD = 90;
 const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
-const CHECK_INTERVAL = 300000;
+const CHECK_INTERVAL = 30000;
 
 const productCache = new Map();
 const dealWatchList = new Map();
-const logsChannelId = 'ID_DU_SALON_LOGS'; // Ajoutez l'ID de votre salon de logs ici
+const logsChannelId = '1285977835365994506'; // Ajoutez l'ID de votre salon de logs ici
 
 // Fonction pour ajouter un produit au cache
 function addProductToCache(url) {
@@ -281,5 +296,4 @@ function logMessage(message) {
     console.log(`Logs: ${message}`);
   }
 }
-
 client.login(process.env.TOKEN);
