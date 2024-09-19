@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const https = require('https');
 require('dotenv').config();
 const fs = require('fs');
 
@@ -13,31 +14,6 @@ const client = new Client({
   ]
 });
 
-// Exemple de proxy HTTP gratuit
-const proxy = {
-  host: '8.213.128.90',  // Remplacez par l'IP du proxy
-  port: '9000' // Remplacez par le port du proxy
-};
-
-// Utilisation d'un proxy avec axios
-const options = {
-  proxy: {
-    host: proxy.host,
-    port: proxy.port
-  },
-  headers: {
-    'User-Agent': 'Mozilla/5.0',
-    'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-  }
-};
-
-axios.get('https://www.amazon.fr', options)
-  .then(response => {
-    console.log('Réponse reçue avec proxy', response.data);
-  })
-  .catch(error => {
-    console.log('Erreur lors de l\'utilisation du proxy :', error);
-  });
 
 // Rôles réservés
 const ADMIN_ROLE_ID = 'ID_DU_ROLE_ADMIN'; // Remplacez par l'ID du rôle administrateur
