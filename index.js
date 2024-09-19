@@ -38,15 +38,15 @@ const AMAZON_URLS = {
 };
 
 // Constantes de vérification des produits Amazon
-const PRICE_THRESHOLD = 2; 
-const PRICE_THRESHOLD_1_EURO = 1; 
-const PROMO_THRESHOLD = 10; 
-const EDP_THRESHOLD = 70; 
-const DISCOUNT_THRESHOLD = 80; 
-const OTHER_SELLERS_THRESHOLD = 20; 
-const CHECK_INTERVAL = 300000; 
+const PRICE_THRESHOLD = 2;
+const PRICE_THRESHOLD_1_EURO = 1;
+const PROMO_THRESHOLD = 10;
+const EDP_THRESHOLD = 90;
+const DISCOUNT_THRESHOLD = 80;
+const OTHER_SELLERS_THRESHOLD = 20;
+const CHECK_INTERVAL = 300000;
 const MAX_RETRIES = 5;
-const RETRY_DELAY = 5000; 
+const RETRY_DELAY = 5000;
 const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
 
 const productCache = new Map();
@@ -148,12 +148,11 @@ async function fetchAmazonPage(url, logsChannel, retries = 0) {
     return data;
   } catch (error) {
     if (error.response && error.response.status === 503 && retries < MAX_RETRIES) {
-      // Requête échouée, attente avant une nouvelle tentative
       if (logsChannel) {
         logsChannel.send(`Erreur 503 rencontrée. Tentative ${retries + 1}/${MAX_RETRIES}...`);
       }
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY)); // Attente avant nouvelle tentative
-      return fetchAmazonPage(url, logsChannel, retries + 1); // Nouvelle tentative
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      return fetchAmazonPage(url, logsChannel, retries + 1);
     } else {
       throw new Error(`Échec de la récupération des données après ${retries} tentatives.`);
     }
@@ -186,7 +185,6 @@ async function monitorAmazonProducts(logsChannel) {
         const productUrl = 'https://www.amazon.fr' + $(element).find('h2 a').attr('href');
         const productImage = $(element).find('img').attr('src');
 
-        // Calcul du prix total avec livraison (si applicable)
         let shippingCost = 0;
         const shippingText = $(element).find('.a-color-secondary .a-size-small').text();
         if (shippingText.toLowerCase().includes('livraison')) {
@@ -200,25 +198,21 @@ async function monitorAmazonProducts(logsChannel) {
         if (totalPrice && oldPrice) {
           const discountPercentage = ((oldPrice - totalPrice) / oldPrice) * 100;
 
-          // Ajout dans la liste des promos si la réduction dépasse 10%
           if (discountPercentage >= PROMO_THRESHOLD && !isProductInCache(productUrl)) {
             promoProducts.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
           }
 
-          // Vérification pour les produits à moins de 2 €
           if (totalPrice <= PRICE_THRESHOLD && discountPercentage >= DISCOUNT_THRESHOLD && !isProductInCache(productUrl)) {
             products.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
           }
 
-          // Vérification pour les produits à 1 € ou moins
           if (totalPrice <= PRICE_THRESHOLD_1_EURO && !isProductInCache(productUrl)) {
             oneEuroProducts.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
           }
 
-          // Vérification pour les erreurs de prix (EDP)
           if (discountPercentage >= EDP_THRESHOLD && !isProductInCache(productUrl)) {
             edpProducts.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
