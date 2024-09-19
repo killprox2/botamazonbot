@@ -125,6 +125,34 @@ client.once('ready', () => {
   monitorAmazonProducts(logsChannel);
 });
 
+// Fonction pour effectuer la requête Amazon avec gestion des erreurs et des tentatives
+async function fetchAmazonPage(url, logsChannel, retries = 0) {
+  try {
+    const options = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+      }
+    };
+
+    const { data } = await axios.get(url, options);
+    return data;
+  } catch (error) {
+    if (error.response && error.response.status === 503 && retries < MAX_RETRIES) {
+      // Requête échouée, attente avant une nouvelle tentative
+      if (logsChannel) {
+        logsChannel.send(`Erreur 503 rencontrée. Tentative ${retries + 1}/${MAX_RETRIES}...`);
+      }
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY)); // Attente avant nouvelle tentative
+      return fetchAmazonPage(url, logsChannel, retries + 1); // Nouvelle tentative
+    } else {
+      throw new Error(`Échec de la récupération des données après ${retries} tentatives.`);
+    }
+  }
+}
+
 // Fonction pour surveiller les produits Amazon et détecter les autres vendeurs
 async function monitorAmazonProducts(logsChannel) {
   try {
@@ -191,10 +219,7 @@ async function monitorAmazonProducts(logsChannel) {
         }
       });
 
-      // Envoi des produits dans les canaux appropriés (promo, < 2€, etc.)
       sendProductsToChannels(products, oneEuroProducts, promoProducts, edpProducts);
-
-      // Pause avant la prochaine vérification
       await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL));
     }
   } catch (error) {
@@ -212,16 +237,9 @@ function sendProductsToChannels(products, oneEuroProducts, promoProducts, edpPro
   const edpChannel = client.channels.cache.get('1285953900066902057');
   const productsChannel = client.channels.cache.get('1285927841577439232');
 
-  // Envoi des produits à moins de 2 €
   products.forEach((product) => sendEmbed(productsChannel, product, 'Produit en promotion', channelMentions['2euro']));
-
-  // Envoi des produits à 1 € ou moins
   oneEuroProducts.forEach((product) => sendEmbed(oneEuroChannel, product, 'Produit à 1 € ou moins', channelMentions['1euro']));
-
-  // Envoi des produits en promo
   promoProducts.forEach((product) => sendEmbed(promoChannel, product, 'Produit en promotion', channelMentions['promo']));
-
-  // Envoi des produits avec erreur de prix
   edpProducts.forEach((product) => sendEmbed(edpChannel, product, 'Erreur de prix détectée', channelMentions['EDP']));
 }
 
