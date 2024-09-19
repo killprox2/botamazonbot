@@ -25,7 +25,8 @@ const channelMentions = {
   'Autre_vendeur': '<@&ID_DU_ROLE_AUTRE_VENDEUR>',
   '2euro': '<@&ID_DU_ROLE_2EURO>',
   '1euro': '<@&ID_DU_ROLE_1EURO>',
-  'promo': '<@&ID_DU_ROLE_PROMO>'
+  'promo': '<@&ID_DU_ROLE_PROMO>',
+  'logs': '<@&ID_DU_ROLE_LOGS>' // Ajout d'un salon pour logs
 };
 
 // URLs de recherche sur Amazon
@@ -40,12 +41,12 @@ const PRICE_THRESHOLD = 2; // Seuil pour produits à moins de 2€
 const PRICE_THRESHOLD_1_EURO = 1; // Seuil pour produits à moins de 1€
 const PROMO_THRESHOLD = 5; // Réduction nécessaire pour considérer un produit comme une promo
 const EDP_THRESHOLD = 90; // Réduction pour les erreurs de prix
-const OTHER_SELLERS_THRESHOLD = 10; // Seuil pour les offres des autres vendeurs
 const CACHE_EXPIRY_TIME = 60 * 60 * 1000; // Cache d'une heure pour éviter les doublons
 const CHECK_INTERVAL = 300000; // Intervalle de vérification (5 minutes)
 
 const productCache = new Map();
 const dealWatchList = new Map();
+const logsChannelId = 'ID_DU_SALON_LOGS'; // Ajoutez l'ID de votre salon de logs ici
 
 // Fonction pour ajouter un produit au cache
 function addProductToCache(url) {
@@ -92,6 +93,7 @@ client.on('messageCreate', async (message) => {
 
     dealWatchList.set(productUrl, maxPrice);
     message.channel.send(`Produit ajouté à la surveillance : ${productUrl} avec un prix maximum de ${maxPrice}€`);
+    logMessage(`Produit ajouté à la surveillance manuelle: ${productUrl} avec un prix max de ${maxPrice}€`);
   }
 });
 
@@ -118,7 +120,7 @@ client.on('messageReactionRemove', async (reaction, user) => {
 
 // Fonction principale du bot pour surveiller les produits sur Amazon
 client.once('ready', () => {
-  console.log(`Bot connecté en tant que ${client.user.tag}`);
+  logMessage(`Bot connecté en tant que ${client.user.tag}`);
   monitorAmazonProducts();
   monitorDeals(); // Lancer la surveillance des produits ajoutés manuellement
 });
@@ -126,7 +128,7 @@ client.once('ready', () => {
 // Fonction pour récupérer les pages Amazon avec gestion des erreurs
 async function fetchAmazonPage(url, retries = 0) {
   if (!url || url.trim() === '') {
-    console.error(`Erreur: URL vide ou incorrecte: ${url}`);
+    logMessage(`Erreur: URL vide ou incorrecte: ${url}`);
     return null;
   }
 
@@ -142,11 +144,11 @@ async function fetchAmazonPage(url, retries = 0) {
     return data;
   } catch (error) {
     if (retries < 5) {
-      console.log(`Erreur lors de la récupération de ${url}, tentative ${retries + 1}`);
+      logMessage(`Erreur lors de la récupération de ${url}, tentative ${retries + 1}`);
       await new Promise(resolve => setTimeout(resolve, 5000));
       return fetchAmazonPage(url, retries + 1);
     }
-    console.error(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
+    logMessage(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
     return null;
   }
 }
@@ -155,7 +157,7 @@ async function fetchAmazonPage(url, retries = 0) {
 async function monitorAmazonProducts() {
   for (const url of AMAZON_URLS) {
     if (!url || url.trim() === '') {
-      console.log('URL vide ou incorrecte ignorée');
+      logMessage('URL vide ou incorrecte ignorée');
       continue;
     }
 
@@ -208,7 +210,7 @@ async function monitorAmazonProducts() {
         }
       });
     } catch (error) {
-      console.error('Erreur:', error.message);
+      logMessage(`Erreur lors de la récupération des produits: ${error.message}`);
     }
 
     await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL));
@@ -230,7 +232,7 @@ async function monitorDeals() {
           sendProductToChannel('Produit surveillé', price, maxPrice, 0, url, '', 'deal');
         }
       } catch (error) {
-        console.error('Erreur lors de la surveillance des deals:', error.message);
+        logMessage(`Erreur lors de la surveillance des deals: ${error.message}`);
       }
     }
   }, CHECK_INTERVAL);
@@ -263,6 +265,16 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
       .setTimestamp();
 
     channel.send({ embeds: [embed] });
+  }
+}
+
+// Fonction pour loguer des messages dans le salon "logs"
+function logMessage(message) {
+  const logsChannel = client.channels.cache.get(logsChannelId);
+  if (logsChannel) {
+    logsChannel.send(message);
+  } else {
+    console.log(`Logs: ${message}`);
   }
 }
 
