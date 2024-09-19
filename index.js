@@ -31,7 +31,7 @@ const channelMentions = {
 
 // Constantes pour les seuils et URLs d'Amazon
 const AMAZON_URLS = {
-  electronics: 'https://www.amazon.fr/s?k=electronique&rh=p_36%3A-100',
+  promo: 'https://www.amazon.fr/s?k=promo',
   beauty: 'https://www.amazon.fr/s?k=beauté&rh=p_36%3A-100',
   toys: 'https://www.amazon.fr/s?k=jouets&rh=p_36%3A-100',
   books: 'https://www.amazon.fr/s?k=livres&rh=p_36%3A-100',
