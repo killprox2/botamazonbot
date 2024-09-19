@@ -59,7 +59,10 @@ const PRICE_THRESHOLD_1_EURO = 1;
 const PROMO_THRESHOLD = 30;
 const EDP_THRESHOLD = 90;
 const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
-const CHECK_INTERVAL = 30000;
+
+const CHECK_INTERVAL_EDP = 20000; // 20 secondes pour EDP
+const CHECK_INTERVAL_VENTE_FLASH = 60000; // 60 secondes pour les ventes flash
+const CHECK_INTERVAL_OTHER = 30000; // 30 secondes pour les autres catégories
 
 const productCache = new Map();
 const dealWatchList = new Map();
@@ -143,35 +146,7 @@ client.once('ready', () => {
   monitorDeals(); // Lancer la surveillance des produits ajoutés manuellement
 });
 
-// Fonction pour récupérer les pages Amazon avec gestion des erreurs
-async function fetchAmazonPage(url, retries = 0) {
-  if (!url || url.trim() === '') {
-    logMessage(`Erreur: URL vide ou incorrecte: ${url}`);
-    return null;
-  }
-
-  const options = {
-    headers: {
-      'User-Agent': 'Mozilla/5.0',
-      'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-    }
-  };
-
-  try {
-    const { data } = await axios.get(url, options);
-    return data;
-  } catch (error) {
-    if (retries < 5) {
-      logMessage(`Erreur lors de la récupération de ${url}, tentative ${retries + 1}`);
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      return fetchAmazonPage(url, retries + 1);
-    }
-    logMessage(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
-    return null;
-  }
-}
-
-// Surveillance des produits Amazon, incluant les ventes flash
+// Surveillance des produits Amazon, incluant la pagination et les ventes flash
 async function monitorAmazonProducts() {
   for (const url of AMAZON_URLS) {
     if (!url || url.trim() === '') {
@@ -180,58 +155,80 @@ async function monitorAmazonProducts() {
     }
 
     try {
-      const html = await fetchAmazonPage(url);
-      if (!html) continue;
-
-      const $ = cheerio.load(html);
-
-      $('.s-main-slot .s-result-item').each(async (i, element) => {
-        const productTitle = $(element).find('h2 a span').text();
-        const priceText = $(element).find('.a-price-whole').text();
-        const price = parseFloat(priceText.replace(',', '.'));
-        const oldPriceText = $(element).find('.a-text-price .a-offscreen').first().text();
-        const oldPrice = parseFloat(oldPriceText.replace(',', '.'));
-        const productUrl = 'https://www.amazon.fr' + $(element).find('h2 a').attr('href');
-        const productImage = $(element).find('img').attr('src');
-
-        let shippingCost = 0;
-        const shippingText = $(element).find('.a-color-secondary .a-size-small').text();
-        if (shippingText.toLowerCase().includes('livraison')) {
-          const shippingCostText = shippingText.match(/(\d+,\d+)/);
-          if (shippingCostText) shippingCost = parseFloat(shippingCostText[0].replace(',', '.'));
-        }
-        const totalPrice = price + shippingCost;
-
-        if (!isProductInCache(productUrl) && totalPrice && oldPrice) {
-          const discountPercentage = ((oldPrice - totalPrice) / oldPrice) * 100;
-
-          if (discountPercentage >= PROMO_THRESHOLD) {
-            sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'promo');
-          }
-          if (totalPrice <= PRICE_THRESHOLD) {
-            sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, '2euro');
-          }
-          if (totalPrice <= PRICE_THRESHOLD_1_EURO) {
-            sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, '1euro');
-          }
-          if (discountPercentage >= EDP_THRESHOLD) {
-            sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'EDP');
-          }
-
-          // Détection des ventes flash
-          const flashDealText = $(element).find('.dealBadge').text();
-          if (flashDealText.toLowerCase().includes('vente flash')) {
-            sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'vente_flash');
-          }
-
-          addProductToCache(productUrl);
-        }
-      });
+      await monitorPage(url, 1); // Commence avec la première page de chaque URL
     } catch (error) {
-      logMessage(`Erreur lors de la récupération des produits: ${error.message}`);
+      logMessage(`Erreur lors de la récupération des produits de l'URL ${url}: ${error.message}`);
     }
 
-    await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL));
+    await new Promise(resolve => setTimeout(resolve, getCheckInterval(url))); // Ajustement intelligent des délais
+  }
+}
+
+// Fonction pour ajuster l'intervalle de vérification selon l'URL
+function getCheckInterval(url) {
+  if (url.includes('ventes+flash')) {
+    return CHECK_INTERVAL_VENTE_FLASH;
+  } else if (url.includes('erreur+prix')) {
+    return CHECK_INTERVAL_EDP;
+  }
+  return CHECK_INTERVAL_OTHER;
+}
+
+// Fonction pour parcourir plusieurs pages de résultats Amazon
+async function monitorPage(url, page) {
+  const paginatedUrl = `${url}&page=${page}`;
+  const html = await fetchAmazonPage(paginatedUrl);
+  if (!html) return;
+
+  const $ = cheerio.load(html);
+
+  $('.s-main-slot .s-result-item').each(async (i, element) => {
+    const productTitle = $(element).find('h2 a span').text();
+    const priceText = $(element).find('.a-price-whole').text();
+    const price = parseFloat(priceText.replace(',', '.'));
+    const oldPriceText = $(element).find('.a-text-price .a-offscreen').first().text();
+    const oldPrice = parseFloat(oldPriceText.replace(',', '.'));
+    const productUrl = 'https://www.amazon.fr' + $(element).find('h2 a').attr('href');
+    const productImage = $(element).find('img').attr('src');
+
+    let shippingCost = 0;
+    const shippingText = $(element).find('.a-color-secondary .a-size-small').text();
+    if (shippingText.toLowerCase().includes('livraison')) {
+      const shippingCostText = shippingText.match(/(\d+,\d+)/);
+      if (shippingCostText) shippingCost = parseFloat(shippingCostText[0].replace(',', '.'));
+    }
+    const totalPrice = price + shippingCost;
+
+    if (!isProductInCache(productUrl) && totalPrice && oldPrice) {
+      const discountPercentage = ((oldPrice - totalPrice) / oldPrice) * 100;
+
+      if (discountPercentage >= PROMO_THRESHOLD) {
+        sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'promo');
+      }
+      if (totalPrice <= PRICE_THRESHOLD) {
+        sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, '2euro');
+      }
+      if (totalPrice <= PRICE_THRESHOLD_1_EURO) {
+        sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, '1euro');
+      }
+      if (discountPercentage >= EDP_THRESHOLD) {
+        sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'EDP');
+      }
+
+      // Détection des ventes flash
+      const flashDealText = $(element).find('.dealBadge').text();
+      if (flashDealText.toLowerCase().includes('vente flash')) {
+        sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'vente_flash');
+      }
+
+      addProductToCache(productUrl);
+    }
+  });
+
+  // Vérifier s'il y a une page suivante
+  const nextPage = $('.s-pagination-next');
+  if (nextPage && !nextPage.hasClass('s-pagination-disabled')) {
+    await monitorPage(url, page + 1); // Passe à la page suivante
   }
 }
 
@@ -253,7 +250,36 @@ async function monitorDeals() {
         logMessage(`Erreur lors de la surveillance des deals: ${error.message}`);
       }
     }
-  }, CHECK_INTERVAL);
+  }, CHECK_INTERVAL_OTHER);
+}
+
+// Fonction pour récupérer les pages Amazon avec gestion des erreurs
+async function fetchAmazonPage(url, retries = 0) {
+  if (!url || url.trim() === '') {
+    logMessage(`Erreur: URL vide ou incorrecte: ${url}`);
+    return null;
+  }
+
+  const options = {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+    }
+  };
+
+  try {
+    const { data } = await axios.get(url, options);
+    return data;
+  } catch (error) {
+    logMessage(`Erreur lors de la récupération de l'URL ${url} avec le message d'erreur: ${error.message}`);
+    if (retries < 5) {
+      logMessage(`Nouvelle tentative pour accéder à ${url}, tentative ${retries + 1}`);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      return fetchAmazonPage(url, retries + 1);
+    }
+    logMessage(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
+    return null;
+  }
 }
 
 // Envoi du produit dans le salon approprié
@@ -296,4 +322,5 @@ function logMessage(message) {
     console.log(`Logs: ${message}`);
   }
 }
-client.login(process.env.TOKEN);
+
+client.login(process.env.BOT_TOKEN);
