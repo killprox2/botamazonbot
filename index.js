@@ -18,7 +18,7 @@ const PROMO_THRESHOLD = 10; // Seuil pour détecter une promotion (10% de réduc
 const EDP_THRESHOLD = 90; // Seuil pour les erreurs de prix (90% de réduction)
 const DISCOUNT_THRESHOLD = 80; // Seuil de réduction minimum pour les produits normaux (80%)
 const OTHER_SELLERS_THRESHOLD = 20; // Seuil de réduction des autres vendeurs en %
-const CHECK_INTERVAL = 30000; // Intervalle de vérification en millisecondes (30 secondes)
+const CHECK_INTERVAL = 60000; // Intervalle de vérification en millisecondes (1 minute)
 const CACHE_EXPIRY_TIME = 60 * 60 * 1000; // 1 heure (3600000 ms)
 
 const productCache = new Map();
@@ -67,7 +67,31 @@ async function monitorAmazonProducts(logsChannel) {
         }
       };
 
-      const { data } = await axios.get(AMAZON_URL, options);
+      let data;
+      let attempts = 0;
+      const maxAttempts = 5;
+
+      // Boucle de retry pour gérer les erreurs 503
+      while (attempts < maxAttempts) {
+        try {
+          const response = await axios.get(AMAZON_URL, options);
+          data = response.data;
+          break; // Arrête la boucle en cas de succès
+        } catch (error) {
+          attempts++;
+          if (error.response && error.response.status === 503) {
+            logsChannel.send(`Erreur 503 détectée. Tentative de nouvelle requête (${attempts}/${maxAttempts})...`);
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Attends 2 secondes avant de réessayer
+          } else {
+            throw error; // Autres erreurs (non 503)
+          }
+        }
+      }
+
+      if (!data) {
+        throw new Error(`Échec de la récupération des données après ${maxAttempts} tentatives.`);
+      }
+
       const $ = cheerio.load(data);
 
       const products = [];
