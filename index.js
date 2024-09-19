@@ -240,9 +240,9 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
   const channelId = {
     'EDP': '1285953900066902057',
     'promo': '1285969661535453215',
-    '2euro': '1285927841577439232',
+    '2euro': '1285939619598172232',
     '1euro': '1255863140974071893',
-    'deal': '1285977835365994506'
+    'deal': '1285955371252580352'
   }[category];
 
   const channel = client.channels.cache.get(channelId);
