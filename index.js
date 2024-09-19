@@ -250,7 +250,7 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
     '1euro': '1255863140974071893',
     'Autre_vendeur': '1285974003307118644',
     'deal': '1285955371252580352',
-    'vente_flash': 'ID_DU_SALON_VENTE_FLASH' // Nouveau salon pour les ventes flash
+    'vente_flash': '1286281265825321023' // Nouveau salon pour les ventes flash
   }[category];
 
   const channel = client.channels.cache.get(channelId);
