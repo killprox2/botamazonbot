@@ -37,8 +37,8 @@ const AMAZON_URLS = {
   books: 'https://www.amazon.fr/s?k=livres&rh=p_36%3A-100',
 };
 
-const PRICE_THRESHOLD = 2; 
-const PRICE_THRESHOLD_1_EURO = 1; 
+const PRICE_THRESHOLD = 2;
+const PRICE_THRESHOLD_1_EURO = 1;
 const PROMO_THRESHOLD = 5;  // Seuil abaissé pour capter plus de promotions
 const EDP_THRESHOLD = 90;
 const DISCOUNT_THRESHOLD = 80;
@@ -135,9 +135,9 @@ client.once('ready', () => {
 async function fetchAmazonPage(url, logsChannel, retries = 0) {
   try {
     const proxy = {
-  host: '123.45.67.89', // Remplacez par l'adresse IP du proxy
-  port: 8080 // Remplacez par le port du proxy
-};
+      host: '123.45.67.89', // Remplacez par l'adresse IP du proxy
+      port: 8080 // Remplacez par le port du proxy
+    };
 
     const options = {
       headers: {
