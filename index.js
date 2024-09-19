@@ -44,12 +44,10 @@ const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
 
 // Configuration du proxy (ajustez ces valeurs avec les détails de votre proxy)
 const proxyConfig = {
-  host: '37.187.25.85',
-  port: 80,
-  auth: {
-    username: 'elite proxy'
-  }
+  host: '123.45.67.89',
+  port: 8080,
 };
+
 
 const productCache = new Map();
 
