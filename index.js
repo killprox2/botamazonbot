@@ -31,16 +31,25 @@ const channelMentions = {
 
 // Constantes de vérification des produits Amazon
 const AMAZON_URL = 'https://www.amazon.fr/s?k=';
-const PRICE_THRESHOLD = 2; 
-const PRICE_THRESHOLD_1_EURO = 1; 
-const PROMO_THRESHOLD = 10; 
-const EDP_THRESHOLD = 90; 
-const DISCOUNT_THRESHOLD = 80; 
-const OTHER_SELLERS_THRESHOLD = 20; 
+const PRICE_THRESHOLD = 2;
+const PRICE_THRESHOLD_1_EURO = 1;
+const PROMO_THRESHOLD = 10;
+const EDP_THRESHOLD = 90;
+const DISCOUNT_THRESHOLD = 80;
+const OTHER_SELLERS_THRESHOLD = 20;
 const CHECK_INTERVAL = 300000; 
 const MAX_RETRIES = 5;
 const RETRY_DELAY = 5000; 
 const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
+
+// Configuration du proxy (ajustez ces valeurs avec les détails de votre proxy)
+const proxyConfig = {
+  host: '37.187.25.85',
+  port: 80,
+  auth: {
+    username: 'elite proxy'
+  }
+};
 
 const productCache = new Map();
 
@@ -125,7 +134,7 @@ client.once('ready', () => {
   monitorAmazonProducts(logsChannel);
 });
 
-// Fonction pour effectuer la requête Amazon avec gestion des erreurs et des tentatives
+// Fonction pour effectuer la requête Amazon avec gestion des erreurs et des tentatives, et ajout du proxy
 async function fetchAmazonPage(url, logsChannel, retries = 0) {
   try {
     const options = {
@@ -134,19 +143,19 @@ async function fetchAmazonPage(url, logsChannel, retries = 0) {
         'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
         'Accept-Encoding': 'gzip, deflate, br',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-      }
+      },
+      proxy: proxyConfig // Ajout de la configuration du proxy ici
     };
 
     const { data } = await axios.get(url, options);
     return data;
   } catch (error) {
     if (error.response && error.response.status === 503 && retries < MAX_RETRIES) {
-      // Requête échouée, attente avant une nouvelle tentative
       if (logsChannel) {
         logsChannel.send(`Erreur 503 rencontrée. Tentative ${retries + 1}/${MAX_RETRIES}...`);
       }
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY)); // Attente avant nouvelle tentative
-      return fetchAmazonPage(url, logsChannel, retries + 1); // Nouvelle tentative
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      return fetchAmazonPage(url, logsChannel, retries + 1);
     } else {
       throw new Error(`Échec de la récupération des données après ${retries} tentatives.`);
     }
@@ -193,25 +202,21 @@ async function monitorAmazonProducts(logsChannel) {
         if (totalPrice && oldPrice) {
           const discountPercentage = ((oldPrice - totalPrice) / oldPrice) * 100;
 
-          // Ajout dans la liste des promos si la réduction dépasse 10%
           if (discountPercentage >= PROMO_THRESHOLD && !isProductInCache(productUrl)) {
             promoProducts.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
           }
 
-          // Vérification pour les produits à moins de 2 €
           if (totalPrice <= PRICE_THRESHOLD && discountPercentage >= DISCOUNT_THRESHOLD && !isProductInCache(productUrl)) {
             products.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
           }
 
-          // Vérification pour les produits à 1 € ou moins
           if (totalPrice <= PRICE_THRESHOLD_1_EURO && !isProductInCache(productUrl)) {
             oneEuroProducts.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
           }
 
-          // Vérification pour les erreurs de prix (EDP)
           if (discountPercentage >= EDP_THRESHOLD && !isProductInCache(productUrl)) {
             edpProducts.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
             addProductToCache(productUrl);
