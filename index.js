@@ -2,6 +2,7 @@ const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const cheerio = require('cheerio');
 require('dotenv').config();
+const fs = require('fs'); // Pour la gestion du cache
 
 const client = new Client({
   intents: [
@@ -27,15 +28,14 @@ const channelMentions = {
   '2euro': '<@deal2>',
   '1euro': '<@deal1>',
   'promo': '<@promo>',
-  'vente_flash': '<@vente flah>'
+  'vente_flash': '<@vente flash>'
 };
 
-// URLs de recherche sur Amazon
 const AMAZON_URLS = [
   'https://www.amazon.fr/s?k=promo',
   'https://www.amazon.fr/s?k=electronique',
   'https://www.amazon.fr/s?k=jouets',
-  'https://www.amazon.fr/s?k=ventes+flash', // Ventes flash
+  'https://www.amazon.fr/s?k=ventes+flash',
   'https://www.amazon.fr/s?k=beauté',
   'https://www.amazon.fr/s?k=sport',
   'https://www.amazon.fr/s?k=maison',
@@ -58,7 +58,9 @@ const PRICE_THRESHOLD = 2;
 const PRICE_THRESHOLD_1_EURO = 1;
 const PROMO_THRESHOLD = 30;
 const EDP_THRESHOLD = 90;
-const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
+const CACHE_EXPIRY_TIME = 60 * 60 * 1000; // 1 heure
+const THROTTLE_LIMIT = 5; // Limite de requêtes simultanées
+let throttleCount = 0;
 
 const CHECK_INTERVAL_EDP = 20000; // 20 secondes pour EDP
 const CHECK_INTERVAL_VENTE_FLASH = 60000; // 60 secondes pour les ventes flash
@@ -66,11 +68,27 @@ const CHECK_INTERVAL_OTHER = 30000; // 30 secondes pour les autres catégories
 
 const productCache = new Map();
 const dealWatchList = new Map();
+const userNotifications = new Map(); // Map pour les préférences utilisateur
 const logsChannelId = '1285977835365994506'; // Ajoutez l'ID de votre salon de logs ici
 
-// Fonction pour ajouter un produit au cache
-function addProductToCache(url) {
-  productCache.set(url, Date.now());
+// Charger le cache à partir d'un fichier
+function loadCache() {
+  if (fs.existsSync('cache.json')) {
+    const data = fs.readFileSync('cache.json');
+    const parsed = JSON.parse(data);
+    parsed.forEach(([key, value]) => productCache.set(key, value));
+  }
+}
+
+// Sauvegarder le cache dans un fichier
+function saveCache() {
+  const data = JSON.stringify([...productCache]);
+  fs.writeFileSync('cache.json', data);
+}
+
+// Fonction pour ajouter un produit au cache avec son prix et horodatage
+function addProductToCache(url, price) {
+  productCache.set(url, { price, timestamp: Date.now() });
   setTimeout(() => productCache.delete(url), CACHE_EXPIRY_TIME);
 }
 
@@ -100,6 +118,48 @@ client.on('messageCreate', async (message) => {
     await roleMessage.react('🔵');
     await roleMessage.react('🔥');
     await roleMessage.react('⚡'); // Emoji pour ventes flash
+  }
+
+  // Commande pour recevoir des notifications par DM
+  if (message.content.startsWith('-notif_dm')) {
+    const args = message.content.split(' ');
+    const category = args[1];
+    const minPrice = parseFloat(args[2]);
+    const maxPrice = parseFloat(args[3]);
+
+    if (!category || isNaN(minPrice) || isNaN(maxPrice)) {
+      message.channel.send('Usage: `-notif_dm <categorie> <prix_min> <prix_max>`');
+      return;
+    }
+
+    userNotifications.set(message.author.id, { category, minPrice, maxPrice });
+    message.channel.send(`Notifications personnalisées activées pour la catégorie ${category} entre ${minPrice}€ et ${maxPrice}€`);
+  }
+
+  // Liste des produits surveillés
+  if (message.content === '-list_deals') {
+    if (dealWatchList.size === 0) {
+      message.channel.send('Aucun produit n\'est actuellement surveillé.');
+    } else {
+      const deals = [...dealWatchList.entries()]
+        .map(([url, maxPrice]) => `${url} (prix max: ${maxPrice}€)`)
+        .join('\n');
+      message.channel.send(`Produits surveillés:\n${deals}`);
+    }
+  }
+
+  // Suppression d'un produit surveillé
+  if (message.content.startsWith('-remove_deal')) {
+    const args = message.content.split(' ');
+    const productUrl = args[1];
+
+    if (!productUrl || !dealWatchList.has(productUrl)) {
+      message.channel.send('Produit introuvable dans la liste de surveillance.');
+      return;
+    }
+
+    dealWatchList.delete(productUrl);
+    message.channel.send(`Produit supprimé de la surveillance : ${productUrl}`);
   }
 
   if (message.content.startsWith('-add_deal')) {
@@ -142,26 +202,25 @@ client.on('messageReactionRemove', async (reaction, user) => {
 // Fonction principale du bot pour surveiller les produits sur Amazon
 client.once('ready', () => {
   logMessage(`Bot connecté en tant que ${client.user.tag}`);
+  loadCache(); // Charger le cache à la connexion du bot
   monitorAmazonProducts();
   monitorDeals(); // Lancer la surveillance des produits ajoutés manuellement
+
+  // Sauvegarder le cache à intervalles réguliers
+  setInterval(saveCache, 60000); // Sauvegarder toutes les minutes
 });
 
 // Surveillance des produits Amazon, incluant la pagination et les ventes flash
 async function monitorAmazonProducts() {
-  for (const url of AMAZON_URLS) {
-    if (!url || url.trim() === '') {
-      logMessage('URL vide ou incorrecte ignorée');
-      continue;
-    }
-
+  const promises = AMAZON_URLS.map(async (url) => {
     try {
-      await monitorPage(url, 1); // Commence avec la première page de chaque URL
+      await throttleRequests();
+      await monitorPage(url, 1, 5); // Limite à 5 pages pour éviter des boucles infinies
     } catch (error) {
       logMessage(`Erreur lors de la récupération des produits de l'URL ${url}: ${error.message}`);
     }
-
-    await new Promise(resolve => setTimeout(resolve, getCheckInterval(url))); // Ajustement intelligent des délais
-  }
+  });
+  await Promise.all(promises); // Exécuter toutes les requêtes en parallèle
 }
 
 // Fonction pour ajuster l'intervalle de vérification selon l'URL
@@ -174,8 +233,19 @@ function getCheckInterval(url) {
   return CHECK_INTERVAL_OTHER;
 }
 
+// Fonction pour limiter les requêtes (throttling)
+async function throttleRequests() {
+  throttleCount++;
+  if (throttleCount >= THROTTLE_LIMIT) {
+    await new Promise(resolve => setTimeout(resolve, 1000)); // Attendre une seconde après chaque batch
+    throttleCount = 0;
+  }
+}
+
 // Fonction pour parcourir plusieurs pages de résultats Amazon
-async function monitorPage(url, page) {
+async function monitorPage(url, page, maxPages) {
+  if (page > maxPages) return; // Limite le nombre de pages à parcourir
+
   const paginatedUrl = `${url}&page=${page}`;
   const html = await fetchAmazonPage(paginatedUrl);
   if (!html) return;
@@ -184,8 +254,10 @@ async function monitorPage(url, page) {
 
   $('.s-main-slot .s-result-item').each(async (i, element) => {
     const productTitle = $(element).find('h2 a span').text();
-    const priceText = $(element).find('.a-price-whole').text();
-    const price = parseFloat(priceText.replace(',', '.'));
+    const priceWholeText = $(element).find('.a-price-whole').text();
+    const priceFractionText = $(element).find('.a-price-fraction').text();
+    const price = parseFloat(`${priceWholeText.replace(',', '.')}.${priceFractionText}`);
+    
     const oldPriceText = $(element).find('.a-text-price .a-offscreen').first().text();
     const oldPrice = parseFloat(oldPriceText.replace(',', '.'));
     const productUrl = 'https://www.amazon.fr' + $(element).find('h2 a').attr('href');
@@ -202,33 +274,40 @@ async function monitorPage(url, page) {
     if (!isProductInCache(productUrl) && totalPrice && oldPrice) {
       const discountPercentage = ((oldPrice - totalPrice) / oldPrice) * 100;
 
+      // Envoi des notifications DM personnalisées si activées
+      const userPrefs = userNotifications.get(user.id);
+      if (userPrefs && userPrefs.category === 'promo' && totalPrice >= userPrefs.minPrice && totalPrice <= userPrefs.maxPrice) {
+        const user = await client.users.fetch(user.id);
+        user.send(`Produit intéressant détecté: ${productTitle} - Prix: ${totalPrice}€`);
+      }
+
       if (discountPercentage >= PROMO_THRESHOLD) {
-        sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'promo');
+        sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'promo');
       }
       if (totalPrice <= PRICE_THRESHOLD) {
-        sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, '2euro');
+        sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, '2euro');
       }
       if (totalPrice <= PRICE_THRESHOLD_1_EURO) {
-        sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, '1euro');
+        sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, '1euro');
       }
       if (discountPercentage >= EDP_THRESHOLD) {
-        sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'EDP');
+        sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'EDP');
       }
 
       // Détection des ventes flash
       const flashDealText = $(element).find('.dealBadge').text();
       if (flashDealText.toLowerCase().includes('vente flash')) {
-        sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'vente_flash');
+        sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'vente_flash');
       }
 
-      addProductToCache(productUrl);
+      addProductToCache(productUrl, totalPrice);
     }
   });
 
-  // Vérifier s'il y a une page suivante
+  // Vérifier s'il y a une page suivante et la parcourir si elle existe
   const nextPage = $('.s-pagination-next');
   if (nextPage && !nextPage.hasClass('s-pagination-disabled')) {
-    await monitorPage(url, page + 1); // Passe à la page suivante
+    await monitorPage(url, page + 1, maxPages); // Passe à la page suivante
   }
 }
 
@@ -241,10 +320,12 @@ async function monitorDeals() {
         if (!html) continue;
 
         const $ = cheerio.load(html);
-        const priceText = $('.a-price-whole').first().text();
-        const price = parseFloat(priceText.replace(',', '.'));
+        const priceWholeText = $('.a-price-whole').first().text();
+        const priceFractionText = $('.a-price-fraction').first().text();
+        const price = parseFloat(`${priceWholeText.replace(',', '.')}.${priceFractionText}`);
+        
         if (price <= maxPrice) {
-          sendProductToChannel('Produit surveillé', price, maxPrice, 0, url, '', 'deal');
+          sendProductToChannel('Produit surveillé', price.toFixed(2), maxPrice, 0, url, '', 'deal');
         }
       } catch (error) {
         logMessage(`Erreur lors de la surveillance des deals: ${error.message}`);
@@ -264,6 +345,11 @@ async function fetchAmazonPage(url, retries = 0) {
     headers: {
       'User-Agent': 'Mozilla/5.0',
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+    },
+    // Ajout d'un proxy ici si nécessaire
+    proxy: {
+      host: 'proxy-server-address',
+      port: 8080
     }
   };
 
@@ -272,6 +358,9 @@ async function fetchAmazonPage(url, retries = 0) {
     return data;
   } catch (error) {
     logMessage(`Erreur lors de la récupération de l'URL ${url} avec le message d'erreur: ${error.message}`);
+    if (error.response) {
+      logMessage(`Code d'erreur HTTP : ${error.response.status}`);
+    }
     if (retries < 5) {
       logMessage(`Nouvelle tentative pour accéder à ${url}, tentative ${retries + 1}`);
       await new Promise(resolve => setTimeout(resolve, 5000));
