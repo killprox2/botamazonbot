@@ -135,9 +135,9 @@ client.once('ready', () => {
 async function fetchAmazonPage(url, logsChannel, retries = 0) {
   try {
     const proxy = {
-      host: 'PROXY_HOST', // Remplace par une adresse proxy valide
-      port: 'PROXY_PORT'  // Remplace par le port de ton proxy
-    };
+  host: '123.45.67.89', // Remplacez par l'adresse IP du proxy
+  port: 8080 // Remplacez par le port du proxy
+};
 
     const options = {
       headers: {
