@@ -33,16 +33,16 @@ const AMAZON_URLS = [
   'https://www.amazon.fr/s?k=promo',
   'https://www.amazon.fr/s?k=electronique',
   'https://www.amazon.fr/s?k=jouets',
-  'https://www.amazon.fr/s?k=livres'
+  'https://www.amazon.fr/s?k='
 ];
 
-const PRICE_THRESHOLD = 2;
-const PRICE_THRESHOLD_1_EURO = 1;
-const PROMO_THRESHOLD = 5;
-const EDP_THRESHOLD = 90;
-const OTHER_SELLERS_THRESHOLD = 10; // Seuil pour détecter les offres des autres vendeurs
-const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
-const CHECK_INTERVAL = 300000;
+const PRICE_THRESHOLD = 2; // Seuil pour produits à moins de 2€
+const PRICE_THRESHOLD_1_EURO = 1; // Seuil pour produits à moins de 1€
+const PROMO_THRESHOLD = 5; // Réduction nécessaire pour considérer un produit comme une promo
+const EDP_THRESHOLD = 90; // Réduction pour les erreurs de prix
+const OTHER_SELLERS_THRESHOLD = 10; // Seuil pour les offres des autres vendeurs
+const CACHE_EXPIRY_TIME = 60 * 60 * 1000; // Cache d'une heure pour éviter les doublons
+const CHECK_INTERVAL = 300000; // Intervalle de vérification (5 minutes)
 
 const productCache = new Map();
 const dealWatchList = new Map();
@@ -241,7 +241,7 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
   const channelId = {
     'EDP': '1285953900066902057',
     'promo': '1285969661535453215',
-    '2euro': '1285927841577439232',
+    '2euro': '1285939619598172232',
     '1euro': '1255863140974071893',
     'Autre_vendeur': '1285974003307118644',
     'deal': '1285955371252580352'
