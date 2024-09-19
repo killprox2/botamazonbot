@@ -40,16 +40,12 @@ const PRICE_THRESHOLD = 2;
 const PRICE_THRESHOLD_1_EURO = 1;
 const PROMO_THRESHOLD = 5;
 const EDP_THRESHOLD = 90;
+const OTHER_SELLERS_THRESHOLD = 10; // Seuil pour détecter les offres des autres vendeurs
 const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
 const CHECK_INTERVAL = 300000;
 
 const productCache = new Map();
 const dealWatchList = new Map();
-
-const proxy = {
-  host: '82.67.23.158', 
-  port: 80
-};
 
 // Fonction pour ajouter un produit au cache
 function addProductToCache(url) {
@@ -124,10 +120,10 @@ client.on('messageReactionRemove', async (reaction, user) => {
 client.once('ready', () => {
   console.log(`Bot connecté en tant que ${client.user.tag}`);
   monitorAmazonProducts();
-  monitorDeals();
+  monitorDeals(); // Lancer la surveillance des produits ajoutés manuellement
 });
 
-// Fonction pour récupérer les pages Amazon avec gestion des proxys et des erreurs
+// Fonction pour récupérer les pages Amazon avec gestion des erreurs
 async function fetchAmazonPage(url, retries = 0) {
   if (!url || url.trim() === '') {
     console.error(`Erreur: URL vide ou incorrecte: ${url}`);
@@ -138,8 +134,7 @@ async function fetchAmazonPage(url, retries = 0) {
     headers: {
       'User-Agent': 'Mozilla/5.0',
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-    },
-    proxy
+    }
   };
 
   try {
@@ -203,6 +198,12 @@ async function monitorAmazonProducts() {
             sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'EDP');
           }
 
+          // Détection des autres vendeurs
+          const sellerText = $(element).find('.a-color-secondary .a-row.a-size-small').text();
+          if (sellerText && discountPercentage < PROMO_THRESHOLD && !isProductInCache(productUrl)) {
+            sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'Autre_vendeur');
+          }
+
           addProductToCache(productUrl);
         }
       });
@@ -240,8 +241,9 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
   const channelId = {
     'EDP': '1285953900066902057',
     'promo': '1285969661535453215',
-    '2euro': '1285939619598172232',
+    '2euro': '1285927841577439232',
     '1euro': '1255863140974071893',
+    'Autre_vendeur': '1285974003307118644',
     'deal': '1285955371252580352'
   }[category];
 
@@ -255,7 +257,7 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
       .setThumbnail(image)
       .addFields(
         { name: 'Prix actuel', value: `${price}€`, inline: true },
-        { name: 'Prix maximum surveillé', value: `${oldPrice}€`, inline: true },
+        { name: 'Prix habituel', value: `${oldPrice}€`, inline: true },
         { name: 'Lien', value: `[Acheter maintenant](${url})`, inline: true }
       )
       .setTimestamp();
