@@ -17,7 +17,8 @@ const roleAssignments = {
   '📦': 'ID_DU_ROLE_AUTRE_VENDEUR',
   '🟢': 'ID_DU_ROLE_2EURO',
   '🔵': 'ID_DU_ROLE_1EURO',
-  '🔥': 'ID_DU_ROLE_PROMO'
+  '🔥': 'ID_DU_ROLE_PROMO',
+  '⚡': 'ID_DU_ROLE_VENTE_FLASH' // Nouveau rôle pour les ventes flash
 };
 
 const channelMentions = {
@@ -26,7 +27,8 @@ const channelMentions = {
   '2euro': '<@&ID_DU_ROLE_2EURO>',
   '1euro': '<@&ID_DU_ROLE_1EURO>',
   'promo': '<@&ID_DU_ROLE_PROMO>',
-  'logs': '<@&ID_DU_ROLE_LOGS>' // Ajout d'un salon pour logs
+  'vente_flash': '<@&ID_DU_ROLE_VENTE_FLASH>', // Mention pour les ventes flash
+  'logs': '<@&ID_DU_ROLE_LOGS>' // Log
 };
 
 // URLs de recherche sur Amazon
@@ -34,15 +36,15 @@ const AMAZON_URLS = [
   'https://www.amazon.fr/s?k=promo',
   'https://www.amazon.fr/s?k=electronique',
   'https://www.amazon.fr/s?k=jouets',
-  'https://www.amazon.fr/s?k='
+  'https://www.amazon.fr/s?k=ventes+flash' // Nouvelle URL pour les ventes flash
 ];
 
-const PRICE_THRESHOLD = 2; // Seuil pour produits à moins de 2€
-const PRICE_THRESHOLD_1_EURO = 1; // Seuil pour produits à moins de 1€
-const PROMO_THRESHOLD = 5; // Réduction nécessaire pour considérer un produit comme une promo
-const EDP_THRESHOLD = 90; // Réduction pour les erreurs de prix
-const CACHE_EXPIRY_TIME = 60 * 60 * 1000; // Cache d'une heure pour éviter les doublons
-const CHECK_INTERVAL = 300000; // Intervalle de vérification (5 minutes)
+const PRICE_THRESHOLD = 2;
+const PRICE_THRESHOLD_1_EURO = 1;
+const PROMO_THRESHOLD = 5;
+const EDP_THRESHOLD = 90;
+const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
+const CHECK_INTERVAL = 300000;
 
 const productCache = new Map();
 const dealWatchList = new Map();
@@ -70,7 +72,8 @@ client.on('messageCreate', async (message) => {
         📦 - Autres vendeurs
         🟢 - Produits à moins de 2€
         🔵 - Produits à moins de 1€
-        🔥 - Promotions`);
+        🔥 - Promotions
+        ⚡ - Ventes Flash`);
 
     const roleMessage = await message.channel.send({ embeds: [embed] });
     await roleMessage.react('💰');
@@ -78,9 +81,9 @@ client.on('messageCreate', async (message) => {
     await roleMessage.react('🟢');
     await roleMessage.react('🔵');
     await roleMessage.react('🔥');
+    await roleMessage.react('⚡'); // Emoji pour ventes flash
   }
 
-  // Commande pour ajouter un produit à la surveillance manuelle
   if (message.content.startsWith('-add_deal')) {
     const args = message.content.split(' ');
     const productUrl = args[1];
@@ -153,7 +156,7 @@ async function fetchAmazonPage(url, retries = 0) {
   }
 }
 
-// Surveillance des produits Amazon
+// Surveillance des produits Amazon, incluant les ventes flash
 async function monitorAmazonProducts() {
   for (const url of AMAZON_URLS) {
     if (!url || url.trim() === '') {
@@ -200,10 +203,10 @@ async function monitorAmazonProducts() {
             sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'EDP');
           }
 
-          // Détection des autres vendeurs
-          const sellerText = $(element).find('.a-color-secondary .a-row.a-size-small').text();
-          if (sellerText && discountPercentage < PROMO_THRESHOLD && !isProductInCache(productUrl)) {
-            sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'Autre_vendeur');
+          // Détection des ventes flash
+          const flashDealText = $(element).find('.dealBadge').text();
+          if (flashDealText.toLowerCase().includes('vente flash')) {
+            sendProductToChannel(productTitle, totalPrice, oldPrice, discountPercentage, productUrl, productImage, 'vente_flash');
           }
 
           addProductToCache(productUrl);
@@ -246,7 +249,8 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
     '2euro': '1285939619598172232',
     '1euro': '1255863140974071893',
     'Autre_vendeur': '1285974003307118644',
-    'deal': '1285955371252580352'
+    'deal': '1285955371252580352',
+    'vente_flash': 'ID_DU_SALON_VENTE_FLASH' // Nouveau salon pour les ventes flash
   }[category];
 
   const channel = client.channels.cache.get(channelId);
