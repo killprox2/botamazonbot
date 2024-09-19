@@ -16,7 +16,7 @@ const client = new Client({
 });
 
 // Rôles réservés
-const ADMIN_ROLE_ID = 'ID_DU_ROLE_ADMIN'; // Remplacez par l'ID du rôle administrateur
+const ADMIN_ROLE_ID = '1286008484776775753'; // Remplacez par l'ID du rôle administrateur
 const PREMIUM_ROLE_ID = 'ID_DU_ROLE_PREMIUM'; // Remplacez par l'ID du rôle premium
 
 const roleAssignments = {
