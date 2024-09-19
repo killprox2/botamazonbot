@@ -1,4 +1,6 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+console.log('Démarrage du bot...');
+
 const axios = require('axios');
 const cheerio = require('cheerio');
 require('dotenv').config();
