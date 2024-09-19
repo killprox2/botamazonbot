@@ -15,8 +15,8 @@ const client = new Client({
 
 // Exemple de proxy HTTP gratuit
 const proxy = {
-  host: '36.72.252.71',  // Remplacez par l'IP du proxy
-  port: '8080' // Remplacez par le port du proxy
+  host: '8.213.128.90',  // Remplacez par l'IP du proxy
+  port: '9000' // Remplacez par le port du proxy
 };
 
 // Utilisation d'un proxy avec axios
