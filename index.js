@@ -2,7 +2,7 @@ const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const cheerio = require('cheerio');
 require('dotenv').config();
-const fs = require('fs'); // Pour la gestion du cache
+const fs = require('fs');
 
 const client = new Client({
   intents: [
@@ -12,6 +12,10 @@ const client = new Client({
     GatewayIntentBits.GuildMessageReactions,
   ]
 });
+
+// Rôles réservés
+const ADMIN_ROLE_ID = 'ID_DU_ROLE_ADMIN'; // Remplacez par l'ID du rôle administrateur
+const PREMIUM_ROLE_ID = 'ID_DU_ROLE_PREMIUM'; // Remplacez par l'ID du rôle premium
 
 const roleAssignments = {
   '💰': '1286277846754525194',
@@ -31,45 +35,19 @@ const channelMentions = {
   'vente_flash': '<@vente flash>'
 };
 
-const AMAZON_URLS = [
-  'https://www.amazon.fr/s?k=promo',
-  'https://www.amazon.fr/s?k=electronique',
-  'https://www.amazon.fr/s?k=jouets',
-  'https://www.amazon.fr/s?k=ventes+flash',
-  'https://www.amazon.fr/s?k=beauté',
-  'https://www.amazon.fr/s?k=sport',
-  'https://www.amazon.fr/s?k=maison',
-  'https://www.amazon.fr/s?k=mode',
-  'https://www.amazon.fr/s?k=livres',
-  'https://www.amazon.fr/s?k=informatique',
-  'https://www.amazon.fr/s?k=outillage',
-  'https://www.amazon.fr/s?k=accessoires+téléphone',
-  'https://www.amazon.fr/s?k=bricolage',
-  'https://www.amazon.fr/s?k=jardinage',
-  'https://www.amazon.fr/s?k=alimentaire',
-  'https://www.amazon.fr/s?k=audio+vidéo',
-  'https://www.amazon.fr/s?k=photo',
-  'https://www.amazon.fr/s?k=enfant',
-  'https://www.amazon.fr/s?k=cuisine',
-  'https://www.amazon.fr/s?k=montres'
-];
-
-const PRICE_THRESHOLD = 2;
-const PRICE_THRESHOLD_1_EURO = 1;
-const PROMO_THRESHOLD = 30;
-const EDP_THRESHOLD = 90;
-const CACHE_EXPIRY_TIME = 60 * 60 * 1000; // 1 heure
-const THROTTLE_LIMIT = 5; // Limite de requêtes simultanées
-let throttleCount = 0;
-
-const CHECK_INTERVAL_EDP = 20000; // 20 secondes pour EDP
-const CHECK_INTERVAL_VENTE_FLASH = 60000; // 60 secondes pour les ventes flash
-const CHECK_INTERVAL_OTHER = 30000; // 30 secondes pour les autres catégories
+// Configuration dynamique des paramètres du bot
+let MAX_PAGES = 5;
+let CHECK_INTERVAL_EDP = 20000;
+let CHECK_INTERVAL_VENTE_FLASH = 60000;
+let CHECK_INTERVAL_OTHER = 30000;
 
 const productCache = new Map();
 const dealWatchList = new Map();
 const userNotifications = new Map(); // Map pour les préférences utilisateur
 const logsChannelId = '1285977835365994506'; // Ajoutez l'ID de votre salon de logs ici
+
+let monitoringInterval;
+let dealInterval;
 
 // Charger le cache à partir d'un fichier
 function loadCache() {
@@ -86,19 +64,20 @@ function saveCache() {
   fs.writeFileSync('cache.json', data);
 }
 
-// Fonction pour ajouter un produit au cache avec son prix et horodatage
-function addProductToCache(url, price) {
-  productCache.set(url, { price, timestamp: Date.now() });
-  setTimeout(() => productCache.delete(url), CACHE_EXPIRY_TIME);
+// Vérifier si un utilisateur a le rôle admin
+function isAdmin(member) {
+  return member.roles.cache.has(ADMIN_ROLE_ID);
 }
 
-// Fonction pour vérifier si un produit est dans le cache
-function isProductInCache(url) {
-  return productCache.has(url);
+// Vérifier si un utilisateur est Premium
+function isPremium(member) {
+  return member.roles.cache.has(PREMIUM_ROLE_ID);
 }
 
 // Gestion des rôles via réactions
 client.on('messageCreate', async (message) => {
+  const member = message.member;
+
   if (message.content === '-role') {
     const embed = new EmbedBuilder()
       .setColor('#0099ff')
@@ -120,61 +99,116 @@ client.on('messageCreate', async (message) => {
     await roleMessage.react('⚡'); // Emoji pour ventes flash
   }
 
-  // Commande pour recevoir des notifications par DM
-  if (message.content.startsWith('-notif_dm')) {
-    const args = message.content.split(' ');
-    const category = args[1];
-    const minPrice = parseFloat(args[2]);
-    const maxPrice = parseFloat(args[3]);
-
-    if (!category || isNaN(minPrice) || isNaN(maxPrice)) {
-      message.channel.send('Usage: `-notif_dm <categorie> <prix_min> <prix_max>`');
+  // Commandes réservées aux administrateurs
+  if (message.content.startsWith('-set_interval')) {
+    if (!isAdmin(member)) {
+      message.reply('Seuls les administrateurs peuvent utiliser cette commande.');
       return;
     }
 
-    userNotifications.set(message.author.id, { category, minPrice, maxPrice });
-    message.channel.send(`Notifications personnalisées activées pour la catégorie ${category} entre ${minPrice}€ et ${maxPrice}€`);
+    const args = message.content.split(' ');
+    const intervalType = args[1];
+    const newInterval = parseInt(args[2]);
+
+    if (isNaN(newInterval)) {
+      message.reply('Veuillez spécifier un intervalle valide en millisecondes.');
+      return;
+    }
+
+    switch (intervalType) {
+      case 'edp':
+        CHECK_INTERVAL_EDP = newInterval;
+        message.reply(`Intervalle des erreurs de prix modifié à ${newInterval} ms.`);
+        break;
+      case 'vente_flash':
+        CHECK_INTERVAL_VENTE_FLASH = newInterval;
+        message.reply(`Intervalle des ventes flash modifié à ${newInterval} ms.`);
+        break;
+      case 'other':
+        CHECK_INTERVAL_OTHER = newInterval;
+        message.reply(`Intervalle des autres produits modifié à ${newInterval} ms.`);
+        break;
+      default:
+        message.reply('Type d\'intervalle non valide. Utilisez : edp, vente_flash ou other.');
+    }
   }
 
-  // Liste des produits surveillés
-  if (message.content === '-list_deals') {
-    if (dealWatchList.size === 0) {
-      message.channel.send('Aucun produit n\'est actuellement surveillé.');
+  // Commandes réservées aux membres Premium
+  if (message.content.startsWith('-search_amazon')) {
+    if (!isPremium(member)) {
+      message.reply('Cette commande est réservée aux membres Premium.');
+      return;
+    }
+
+    const args = message.content.split(' ');
+    const searchQuery = args.slice(1).join(' ');
+    if (!searchQuery) {
+      message.reply('Veuillez spécifier un terme de recherche.');
+      return;
+    }
+
+    const searchUrl = `https://www.amazon.fr/s?k=${encodeURIComponent(searchQuery)}`;
+    const html = await fetchAmazonPage(searchUrl);
+
+    if (html) {
+      const $ = cheerio.load(html);
+      const productTitle = $('.s-main-slot .s-result-item h2 a span').first().text();
+      const productUrl = 'https://www.amazon.fr' + $('.s-main-slot .s-result-item h2 a').first().attr('href');
+      const price = $('.s-main-slot .s-result-item .a-price-whole').first().text();
+
+      if (productTitle) {
+        const embed = new EmbedBuilder()
+          .setTitle(productTitle)
+          .setURL(productUrl)
+          .addFields(
+            { name: 'Prix', value: `${price}€`, inline: true },
+            { name: 'Lien', value: `[Acheter maintenant](${productUrl})`, inline: true }
+          )
+          .setColor('#00FF00');
+        message.channel.send({ embeds: [embed] });
+      } else {
+        message.reply('Aucun produit trouvé.');
+      }
     } else {
-      const deals = [...dealWatchList.entries()]
-        .map(([url, maxPrice]) => `${url} (prix max: ${maxPrice}€)`)
-        .join('\n');
-      message.channel.send(`Produits surveillés:\n${deals}`);
+      message.reply('Erreur lors de la recherche.');
     }
   }
 
-  // Suppression d'un produit surveillé
-  if (message.content.startsWith('-remove_deal')) {
-    const args = message.content.split(' ');
-    const productUrl = args[1];
-
-    if (!productUrl || !dealWatchList.has(productUrl)) {
-      message.channel.send('Produit introuvable dans la liste de surveillance.');
+  // Commande pour stopper la surveillance
+  if (message.content.startsWith('-stop_monitoring')) {
+    if (!isAdmin(member)) {
+      message.reply('Seuls les administrateurs peuvent utiliser cette commande.');
       return;
     }
 
-    dealWatchList.delete(productUrl);
-    message.channel.send(`Produit supprimé de la surveillance : ${productUrl}`);
+    stopMonitoring();
+    message.reply('Toutes les surveillances ont été temporairement arrêtées.');
   }
 
-  if (message.content.startsWith('-add_deal')) {
-    const args = message.content.split(' ');
-    const productUrl = args[1];
-    const maxPrice = parseFloat(args[2]);
-
-    if (!productUrl || isNaN(maxPrice)) {
-      message.channel.send('Usage: `-add_deal <url> <prix_max>`');
+  // Commande pour démarrer la surveillance
+  if (message.content.startsWith('-start_monitoring')) {
+    if (!isAdmin(member)) {
+      message.reply('Seuls les administrateurs peuvent utiliser cette commande.');
       return;
     }
 
-    dealWatchList.set(productUrl, maxPrice);
-    message.channel.send(`Produit ajouté à la surveillance : ${productUrl} avec un prix maximum de ${maxPrice}€`);
-    logMessage(`Produit ajouté à la surveillance manuelle: ${productUrl} avec un prix max de ${maxPrice}€`);
+    startMonitoring();
+    message.reply('La surveillance des produits a démarré.');
+  }
+
+  // Commande pour vérifier le statut du bot
+  if (message.content.startsWith('-status')) {
+    const totalProducts = productCache.size;
+    const totalDeals = dealWatchList.size;
+    const statusMessage = `
+      **Statut du Bot :**
+      - Produits surveillés : ${totalProducts}
+      - Deals actifs : ${totalDeals}
+      - Intervalle EDP : ${CHECK_INTERVAL_EDP} ms
+      - Intervalle Ventes Flash : ${CHECK_INTERVAL_VENTE_FLASH} ms
+      - Intervalle autres produits : ${CHECK_INTERVAL_OTHER} ms
+    `;
+    message.reply(statusMessage);
   }
 });
 
@@ -199,23 +233,27 @@ client.on('messageReactionRemove', async (reaction, user) => {
   }
 });
 
-// Fonction principale du bot pour surveiller les produits sur Amazon
-client.once('ready', () => {
-  logMessage(`Bot connecté en tant que ${client.user.tag}`);
-  loadCache(); // Charger le cache à la connexion du bot
-  monitorAmazonProducts();
-  monitorDeals(); // Lancer la surveillance des produits ajoutés manuellement
+// Fonction pour démarrer la surveillance
+function startMonitoring() {
+  monitoringInterval = setInterval(monitorAmazonProducts, CHECK_INTERVAL_OTHER);
+  dealInterval = setInterval(monitorDeals, CHECK_INTERVAL_OTHER);
+}
 
-  // Sauvegarder le cache à intervalles réguliers
-  setInterval(saveCache, 60000); // Sauvegarder toutes les minutes
-});
+// Fonction pour arrêter la surveillance
+function stopMonitoring() {
+  clearInterval(monitoringInterval);
+  clearInterval(dealInterval);
+}
+
+// Sauvegarder le cache à intervalles réguliers
+setInterval(saveCache, 60000); // Sauvegarder toutes les minutes
 
 // Surveillance des produits Amazon, incluant la pagination et les ventes flash
 async function monitorAmazonProducts() {
   const promises = AMAZON_URLS.map(async (url) => {
     try {
       await throttleRequests();
-      await monitorPage(url, 1, 5); // Limite à 5 pages pour éviter des boucles infinies
+      await monitorPage(url, 1, MAX_PAGES); // Limite à MAX_PAGES pages pour éviter des boucles infinies
     } catch (error) {
       logMessage(`Erreur lors de la récupération des produits de l'URL ${url}: ${error.message}`);
     }
@@ -256,10 +294,10 @@ async function monitorPage(url, page, maxPages) {
     const productTitle = $(element).find('h2 a span').text();
     const priceWholeText = $(element).find('.a-price-whole').text();
     const priceFractionText = $(element).find('.a-price-fraction').text();
-    const price = parseFloat(`${priceWholeText.replace(',', '.')}.${priceFractionText}`);
+    const price = parseFloat(`${priceWholeText.replace(/\s/g, '').replace(',', '.')}.${priceFractionText}`);
     
     const oldPriceText = $(element).find('.a-text-price .a-offscreen').first().text();
-    const oldPrice = parseFloat(oldPriceText.replace(',', '.'));
+    const oldPrice = parseFloat(oldPriceText.replace(/\s/g, '').replace(',', '.'));
     const productUrl = 'https://www.amazon.fr' + $(element).find('h2 a').attr('href');
     const productImage = $(element).find('img').attr('src');
 
@@ -275,11 +313,18 @@ async function monitorPage(url, page, maxPages) {
       const discountPercentage = ((oldPrice - totalPrice) / oldPrice) * 100;
 
       // Envoi des notifications DM personnalisées si activées
-      const userPrefs = userNotifications.get(user.id);
-      if (userPrefs && userPrefs.category === 'promo' && totalPrice >= userPrefs.minPrice && totalPrice <= userPrefs.maxPrice) {
-        const user = await client.users.fetch(user.id);
-        user.send(`Produit intéressant détecté: ${productTitle} - Prix: ${totalPrice}€`);
-      }
+      userNotifications.forEach(async (prefs, userId) => {
+        if (prefs.category.toLowerCase() === 'promo' && totalPrice >= prefs.minPrice && totalPrice <= prefs.maxPrice) {
+          try {
+            const user = await client.users.fetch(userId);
+            if (user) {
+              await user.send(`Produit intéressant détecté: **${productTitle}** - Prix: ${totalPrice.toFixed(2)}€\n[Voir sur Amazon](${productUrl})`);
+            }
+          } catch (error) {
+            logMessage(`Erreur lors de l'envoi du DM à l'utilisateur ${userId}: ${error.message}`);
+          }
+        }
+      });
 
       if (discountPercentage >= PROMO_THRESHOLD) {
         sendProductToChannel(productTitle, totalPrice.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'promo');
@@ -316,13 +361,14 @@ async function monitorDeals() {
   setInterval(async () => {
     for (const [url, maxPrice] of dealWatchList.entries()) {
       try {
+        await throttleRequests();
         const html = await fetchAmazonPage(url);
         if (!html) continue;
 
         const $ = cheerio.load(html);
         const priceWholeText = $('.a-price-whole').first().text();
         const priceFractionText = $('.a-price-fraction').first().text();
-        const price = parseFloat(`${priceWholeText.replace(',', '.')}.${priceFractionText}`);
+        const price = parseFloat(`${priceWholeText.replace(/\s/g, '').replace(',', '.')}.${priceFractionText}`);
         
         if (price <= maxPrice) {
           sendProductToChannel('Produit surveillé', price.toFixed(2), maxPrice, 0, url, '', 'deal');
@@ -345,11 +391,6 @@ async function fetchAmazonPage(url, retries = 0) {
     headers: {
       'User-Agent': 'Mozilla/5.0',
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-    },
-    // Ajout d'un proxy ici si nécessaire
-    proxy: {
-      host: 'proxy-server-address',
-      port: 8080
     }
   };
 
@@ -412,4 +453,11 @@ function logMessage(message) {
   }
 }
 
-client.login(process.env.BOT_TOKEN);
+// Sauvegarde du cache lors de la fermeture du bot
+process.on('SIGINT', () => {
+  saveCache();
+  console.log('Cache sauvegardé. Fermeture du bot.');
+  process.exit();
+});
+
+client.login(process.env.TOKEN);
