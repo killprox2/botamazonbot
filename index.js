@@ -18,7 +18,9 @@ const PROMO_THRESHOLD = 10; // Seuil pour détecter une promotion (10% de réduc
 const EDP_THRESHOLD = 90; // Seuil pour les erreurs de prix (90% de réduction)
 const DISCOUNT_THRESHOLD = 80; // Seuil de réduction minimum pour les produits normaux (80%)
 const OTHER_SELLERS_THRESHOLD = 20; // Seuil de réduction des autres vendeurs en %
-const CHECK_INTERVAL = 60000; // Intervalle de vérification en millisecondes (1 minute)
+const CHECK_INTERVAL = 300000; // Intervalle de vérification en millisecondes (5 minutes)
+const MAX_RETRIES = 5; // Maximum de tentatives en cas d'échec
+const RETRY_DELAY = 5000; // Délai entre les tentatives en millisecondes
 const CACHE_EXPIRY_TIME = 60 * 60 * 1000; // 1 heure (3600000 ms)
 
 const productCache = new Map();
@@ -38,10 +40,8 @@ function isProductInCache(url) {
 client.once('ready', () => {
   console.log(`Bot is logged in as ${client.user.tag}`);
 
-  // Ajouter ici l'ID du canal logs
-  const logsChannel = client.channels.cache.get('1285977835365994506'); // Remplace avec l'ID de ton canal "logs"
+  const logsChannel = client.channels.cache.get('1285977835365994506'); // Canal logs
 
-  // Si le canal des logs existe, enregistrer le démarrage
   if (logsChannel) {
     logsChannel.send(`Le bot a démarré et surveille maintenant les produits Amazon.`);
   }
@@ -49,50 +49,44 @@ client.once('ready', () => {
   monitorAmazonProducts(logsChannel); // Surveillance des produits Amazon avec les logs
 });
 
+// Fonction pour effectuer la requête Amazon avec gestion des erreurs et des tentatives
+async function fetchAmazonPage(url, logsChannel, retries = 0) {
+  try {
+    const options = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+      }
+    };
+
+    const { data } = await axios.get(url, options);
+    return data;
+  } catch (error) {
+    if (error.response && error.response.status === 503 && retries < MAX_RETRIES) {
+      // Requête échouée, attente avant une nouvelle tentative
+      if (logsChannel) {
+        logsChannel.send(`Erreur 503 rencontrée. Tentative ${retries + 1}/${MAX_RETRIES}...`);
+      }
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY)); // Attente avant nouvelle tentative
+      return fetchAmazonPage(url, logsChannel, retries + 1); // Nouvelle tentative
+    } else {
+      throw new Error(`Échec de la récupération des données après ${retries} tentatives.`);
+    }
+  }
+}
+
 // Fonction pour surveiller les produits Amazon et détecter les autres vendeurs
 async function monitorAmazonProducts(logsChannel) {
   try {
     while (true) {
-      // Log la recherche Amazon
       if (logsChannel) {
         logsChannel.send(`Recherche de produits sur Amazon à partir de l'URL : ${AMAZON_URL}`);
       }
 
-      const options = {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-        }
-      };
-
-      let data;
-      let attempts = 0;
-      const maxAttempts = 5;
-
-      // Boucle de retry pour gérer les erreurs 503
-      while (attempts < maxAttempts) {
-        try {
-          const response = await axios.get(AMAZON_URL, options);
-          data = response.data;
-          break; // Arrête la boucle en cas de succès
-        } catch (error) {
-          attempts++;
-          if (error.response && error.response.status === 503) {
-            logsChannel.send(`Erreur 503 détectée. Tentative de nouvelle requête (${attempts}/${maxAttempts})...`);
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Attends 2 secondes avant de réessayer
-          } else {
-            throw error; // Autres erreurs (non 503)
-          }
-        }
-      }
-
-      if (!data) {
-        throw new Error(`Échec de la récupération des données après ${maxAttempts} tentatives.`);
-      }
-
-      const $ = cheerio.load(data);
+      const html = await fetchAmazonPage(AMAZON_URL, logsChannel);
+      const $ = cheerio.load(html);
 
       const products = [];
       const oneEuroProducts = [];
@@ -153,7 +147,7 @@ async function monitorAmazonProducts(logsChannel) {
           if (totalPrice <= PRICE_THRESHOLD && discountPercentage >= DISCOUNT_THRESHOLD) {
             if (!isProductInCache(productUrl)) {
               products.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
-              addProductToCache(productUrl); // Ajoute au cache
+              addProductToCache(productUrl);
 
               if (logsChannel) {
                 logsChannel.send(`Produit à moins de 2 € détecté : ${productTitle}, Prix : ${totalPrice}€.`);
@@ -167,7 +161,7 @@ async function monitorAmazonProducts(logsChannel) {
           if (totalPrice <= PRICE_THRESHOLD_1_EURO) {
             if (!isProductInCache(productUrl)) {
               oneEuroProducts.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
-              addProductToCache(productUrl); // Ajoute au cache
+              addProductToCache(productUrl);
 
               if (logsChannel) {
                 logsChannel.send(`Produit à moins de 1 € détecté : ${productTitle}, Prix : ${totalPrice}€.`);
@@ -181,7 +175,7 @@ async function monitorAmazonProducts(logsChannel) {
           if (discountPercentage >= EDP_THRESHOLD) {
             if (!isProductInCache(productUrl)) {
               edpProducts.push({ title: productTitle, price: totalPrice, oldPrice, discountPercentage, url: productUrl, image: productImage });
-              addProductToCache(productUrl); // Ajoute au cache
+              addProductToCache(productUrl);
 
               if (logsChannel) {
                 logsChannel.send(`Erreur de prix détectée : ${productTitle}, Prix : ${totalPrice}€, Réduction : ${Math.round(discountPercentage)}%`);
@@ -193,7 +187,7 @@ async function monitorAmazonProducts(logsChannel) {
 
           // Détection des autres vendeurs
           if (otherSellersText.toLowerCase().includes('autres vendeurs')) {
-            const otherSellersUrl = productUrl + '#other-sellers'; // Lien vers la section des autres vendeurs
+            const otherSellersUrl = productUrl + '#other-sellers';
             otherSellersProducts.push({ title: productTitle, price: totalPrice, url: productUrl, image: productImage, otherSellersUrl });
 
             if (logsChannel) {
