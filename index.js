@@ -3,7 +3,6 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 require('dotenv').config();
 
-// Configuration du bot Discord
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -13,7 +12,6 @@ const client = new Client({
   ]
 });
 
-// Identifiants des rôles et des canaux à attribuer
 const roleAssignments = {
   '💰': 'ID_DU_ROLE_EDP',
   '📦': 'ID_DU_ROLE_AUTRE_VENDEUR',
@@ -38,7 +36,6 @@ const AMAZON_URLS = [
   'https://www.amazon.fr/s?k=livres'
 ];
 
-// Configuration des seuils
 const PRICE_THRESHOLD = 2;
 const PRICE_THRESHOLD_1_EURO = 1;
 const PROMO_THRESHOLD = 5;
@@ -47,12 +44,11 @@ const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
 const CHECK_INTERVAL = 300000;
 
 const productCache = new Map();
-const dealWatchList = new Map(); // Liste de surveillance des produits ajoutés manuellement
+const dealWatchList = new Map();
 
-// Ajout des proxys pour éviter les restrictions d'Amazon
 const proxy = {
-  host: '123.45.67.89', // Remplacez par votre proxy
-  port: 8080
+  host: '82.67.23.158', 
+  port: 80
 };
 
 // Fonction pour ajouter un produit au cache
@@ -128,14 +124,14 @@ client.on('messageReactionRemove', async (reaction, user) => {
 client.once('ready', () => {
   console.log(`Bot connecté en tant que ${client.user.tag}`);
   monitorAmazonProducts();
-  monitorDeals(); // Lancer la surveillance des produits ajoutés manuellement
+  monitorDeals();
 });
 
 // Fonction pour récupérer les pages Amazon avec gestion des proxys et des erreurs
 async function fetchAmazonPage(url, retries = 0) {
   if (!url || url.trim() === '') {
     console.error(`Erreur: URL vide ou incorrecte: ${url}`);
-    return null; // Ne tentez pas de récupérer une page pour une URL vide
+    return null;
   }
 
   const options = {
@@ -156,7 +152,7 @@ async function fetchAmazonPage(url, retries = 0) {
       return fetchAmazonPage(url, retries + 1);
     }
     console.error(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
-    return null; // Retourne null si toutes les tentatives échouent
+    return null;
   }
 }
 
@@ -170,7 +166,7 @@ async function monitorAmazonProducts() {
 
     try {
       const html = await fetchAmazonPage(url);
-      if (!html) continue; // Passez à l'URL suivante si la récupération échoue
+      if (!html) continue;
 
       const $ = cheerio.load(html);
 
@@ -246,7 +242,7 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
     'promo': '1285969661535453215',
     '2euro': '1285927841577439232',
     '1euro': '1255863140974071893',
-    'deal': '1285977835365994506' // Salon "deal"
+    'deal': '1285977835365994506'
   }[category];
 
   const channel = client.channels.cache.get(channelId);
