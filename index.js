@@ -3,17 +3,15 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 require('dotenv').config();
 
-// Configuration du bot Discord
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMessageReactions, // Intent nécessaire pour gérer les réactions
+    GatewayIntentBits.GuildMessageReactions,
   ]
 });
 
-// Identifiants des rôles et des canaux à attribuer
 const roleAssignments = {
   '💰': 'ID_DU_ROLE_EDP',
   '📦': 'ID_DU_ROLE_AUTRE_VENDEUR',
@@ -39,27 +37,40 @@ const AMAZON_URLS = [
   'https://www.amazon.fr/s?k=livres'
 ];
 
-// Configuration des seuils
 const PRICE_THRESHOLD = 2;
 const PRICE_THRESHOLD_1_EURO = 1;
 const PROMO_THRESHOLD = 5;
 const EDP_THRESHOLD = 90;
 const CACHE_EXPIRY_TIME = 60 * 60 * 1000;
-const productCache = new Map();
+const CHECK_INTERVAL = 300000;
 
-// Ajout d'un produit au cache pour éviter le spam
+const productCache = new Map();
+const dealWatchList = new Map(); // Liste de surveillance des produits ajoutés manuellement
+
 function addProductToCache(url) {
   productCache.set(url, Date.now());
   setTimeout(() => productCache.delete(url), CACHE_EXPIRY_TIME);
 }
 
-// Vérification si le produit est déjà dans le cache
 function isProductInCache(url) {
   return productCache.has(url);
 }
 
-// Gestion des rôles via réactions
 client.on('messageCreate', async (message) => {
+  if (message.content.startsWith('-add_deal')) {
+    const args = message.content.split(' ');
+    const productUrl = args[1];
+    const maxPrice = parseFloat(args[2]);
+
+    if (!productUrl || isNaN(maxPrice)) {
+      message.channel.send('Usage: `-add_deal <url> <prix_max>`');
+      return;
+    }
+
+    dealWatchList.set(productUrl, maxPrice);
+    message.channel.send(`Produit ajouté à la surveillance : ${productUrl} avec un prix maximum de ${maxPrice}€`);
+  }
+
   if (message.content === '-role') {
     const embed = new EmbedBuilder()
       .setColor('#0099ff')
@@ -80,7 +91,6 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-// Ajout/Suppression des rôles en fonction des réactions
 client.on('messageReactionAdd', async (reaction, user) => {
   if (user.bot) return;
   const roleId = roleAssignments[reaction.emoji.name];
@@ -101,24 +111,18 @@ client.on('messageReactionRemove', async (reaction, user) => {
   }
 });
 
-// Fonction principale du bot pour surveiller les produits sur Amazon
 client.once('ready', () => {
   console.log(`Bot connecté en tant que ${client.user.tag}`);
   monitorAmazonProducts();
+  monitorDeals(); // Lancer la surveillance des produits ajoutés manuellement
 });
 
-// Requête à Amazon avec gestion des proxys
 async function fetchAmazonPage(url, retries = 0) {
-  const proxy = {
-    host: '123.45.67.89',
-    port: 8080
-  };
   const options = {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36',
+      'User-Agent': 'Mozilla/5.0',
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-    },
-    proxy
+    }
   };
 
   try {
@@ -133,7 +137,7 @@ async function fetchAmazonPage(url, retries = 0) {
   }
 }
 
-// Surveillance des produits
+// Surveillance des produits Amazon
 async function monitorAmazonProducts() {
   for (const url of AMAZON_URLS) {
     try {
@@ -183,13 +187,34 @@ async function monitorAmazonProducts() {
   }
 }
 
+// Surveillance des produits ajoutés manuellement avec `-add_deal`
+async function monitorDeals() {
+  setInterval(async () => {
+    for (const [url, maxPrice] of dealWatchList.entries()) {
+      try {
+        const html = await fetchAmazonPage(url);
+        const $ = cheerio.load(html);
+
+        const priceText = $('.a-price-whole').first().text();
+        const price = parseFloat(priceText.replace(',', '.'));
+        if (price <= maxPrice) {
+          sendProductToChannel('Produit surveillé', price, maxPrice, 0, url, '', 'deal');
+        }
+      } catch (error) {
+        console.error('Erreur lors de la surveillance des deals:', error.message);
+      }
+    }
+  }, CHECK_INTERVAL);
+}
+
 // Envoi du produit dans le salon approprié
 function sendProductToChannel(title, price, oldPrice, discountPercentage, url, image, category) {
   const channelId = {
     'EDP': '1285953900066902057',
     'promo': '1285969661535453215',
     '2euro': '1285927841577439232',
-    '1euro': '1255863140974071893'
+    '1euro': '1255863140974071893',
+    'deal': '1285977835365994506' // Salon "deal"
   }[category];
 
   const channel = client.channels.cache.get(channelId);
@@ -198,11 +223,11 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
       .setColor('#0099ff')
       .setTitle(title)
       .setURL(url)
-      .setDescription(`Réduction de ${Math.round(discountPercentage)}%`)
+      .setDescription(discountPercentage > 0 ? `Réduction de ${Math.round(discountPercentage)}%` : '')
       .setThumbnail(image)
       .addFields(
         { name: 'Prix actuel', value: `${price}€`, inline: true },
-        { name: 'Ancien prix', value: `${oldPrice}€`, inline: true },
+        { name: 'Prix maximum surveillé', value: `${oldPrice}€`, inline: true },
         { name: 'Lien', value: `[Acheter maintenant](${url})`, inline: true }
       )
       .setTimestamp();
