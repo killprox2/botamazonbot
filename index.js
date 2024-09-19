@@ -32,7 +32,6 @@ const channelMentions = {
 
 // URLs de recherche sur Amazon
 const AMAZON_URLS = [
-  'https://www.amazon.fr/s?k=',
   'https://www.amazon.fr/s?k=promo',
   'https://www.amazon.fr/s?k=electronique',
   'https://www.amazon.fr/s?k=jouets',
@@ -134,6 +133,11 @@ client.once('ready', () => {
 
 // Fonction pour récupérer les pages Amazon avec gestion des proxys et des erreurs
 async function fetchAmazonPage(url, retries = 0) {
+  if (!url || url.trim() === '') {
+    console.error(`Erreur: URL vide ou incorrecte: ${url}`);
+    return null; // Ne tentez pas de récupérer une page pour une URL vide
+  }
+
   const options = {
     headers: {
       'User-Agent': 'Mozilla/5.0',
@@ -151,15 +155,23 @@ async function fetchAmazonPage(url, retries = 0) {
       await new Promise(resolve => setTimeout(resolve, 5000));
       return fetchAmazonPage(url, retries + 1);
     }
-    throw new Error(`Échec après plusieurs tentatives pour accéder à ${url}`);
+    console.error(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
+    return null; // Retourne null si toutes les tentatives échouent
   }
 }
 
 // Surveillance des produits Amazon
 async function monitorAmazonProducts() {
   for (const url of AMAZON_URLS) {
+    if (!url || url.trim() === '') {
+      console.log('URL vide ou incorrecte ignorée');
+      continue;
+    }
+
     try {
       const html = await fetchAmazonPage(url);
+      if (!html) continue; // Passez à l'URL suivante si la récupération échoue
+
       const $ = cheerio.load(html);
 
       $('.s-main-slot .s-result-item').each(async (i, element) => {
@@ -201,18 +213,20 @@ async function monitorAmazonProducts() {
     } catch (error) {
       console.error('Erreur:', error.message);
     }
+
     await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL));
   }
 }
 
-// Surveillance des produits ajoutés manuellement via `-add_deal`
+// Surveillance des produits ajoutés manuellement avec `-add_deal`
 async function monitorDeals() {
   setInterval(async () => {
     for (const [url, maxPrice] of dealWatchList.entries()) {
       try {
         const html = await fetchAmazonPage(url);
-        const $ = cheerio.load(html);
+        if (!html) continue;
 
+        const $ = cheerio.load(html);
         const priceText = $('.a-price-whole').first().text();
         const price = parseFloat(priceText.replace(',', '.'));
         if (price <= maxPrice) {
@@ -232,7 +246,7 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
     'promo': '1285969661535453215',
     '2euro': '1285927841577439232',
     '1euro': '1255863140974071893',
-    'deal': '1285977835365994506'
+    'deal': '1285977835365994506' // Salon "deal"
   }[category];
 
   const channel = client.channels.cache.get(channelId);
