@@ -1,7 +1,6 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const https = require('https');
 require('dotenv').config();
 const fs = require('fs');
 
