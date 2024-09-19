@@ -235,4 +235,6 @@ function sendEmbed(channel, product, description) {
   }
 }
 
-client.login(process.env.TOKEN);
+const token = process.env.TOKEN;
+
+client.login(token);
