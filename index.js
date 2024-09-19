@@ -241,7 +241,7 @@ async function monitorAmazonProducts(logsChannel) {
 // Fonction pour envoyer les produits dans les bons canaux
 function sendProductsToChannels(products, oneEuroProducts, promoProducts, edpProducts) {
   const promoChannel = client.channels.cache.get('1285969661535453215');
-  const oneEuroChannel = client.channels.cache.get('1285939619598172232');
+  const oneEuroChannel = client.channels.cache.get('1255863140974071893');
   const edpChannel = client.channels.cache.get('1285953900066902057');
   const productsChannel = client.channels.cache.get('1285927841577439232');
 
