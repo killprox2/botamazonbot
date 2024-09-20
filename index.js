@@ -69,6 +69,15 @@ function saveCache() {
   fs.writeFileSync('cache.json', data);
 }
 
+// Fonction pour générer l'URL de recherche Amazon
+function generateAmazonSearchUrl(query) {
+  const baseUrl = 'https://www.amazon.fr/s';
+  const params = new URLSearchParams({
+    k: query.replace(/\s+/g, '+'), // Remplacer les espaces par des "+"
+  });
+  return `${baseUrl}?${params.toString()}`;
+}
+
 // Fonction pour démarrer la surveillance
 function startMonitoring() {
   monitoringInterval = setInterval(monitorAmazonProducts, CHECK_INTERVAL_OTHER);
@@ -83,107 +92,59 @@ function stopMonitoring() {
   console.log('Moniteur arrêté.');
 }
 
-// Ajoute cet événement pour démarrer le moniteur au lancement du bot
-client.once('ready', () => {
-  console.log(`Connecté en tant que ${client.user.tag}`);
-  loadCache(); // Charger le cache au démarrage
-  startMonitoring(); // Démarre la surveillance immédiatement
-});
-
-// Surveillance des produits Amazon
+// Fonction pour surveiller les produits Amazon
 async function monitorAmazonProducts() {
-  const promises = [...productCache.keys()].map(async (url) => {
+  const queries = ['smartphone', 'ordinateur', 'livre']; // Exemples de termes à rechercher
+  for (const query of queries) {
+    const searchUrl = generateAmazonSearchUrl(query);
+    console.log(`Recherche sur Amazon avec l'URL: ${searchUrl}`);
+
     try {
-      const html = await fetchAmazonPage(url);
+      const html = await fetchAmazonPage(searchUrl);
       if (html) {
-        await monitorPage(url, 1, MAX_PAGES);
+        await parseAmazonResults(html);
       }
     } catch (error) {
-      logMessage(`Erreur lors de la récupération des produits de l'URL ${url}: ${error.message}`);
+      console.log(`Erreur lors de la recherche de ${query}: ${error.message}`);
     }
-  });
-  await Promise.all(promises);
+  }
 }
 
-// Fonction pour parcourir plusieurs pages de résultats Amazon
-async function monitorPage(url, page, maxPages) {
-  if (page > maxPages) return; // Limite le nombre de pages à parcourir
+// Fonction pour récupérer la page Amazon avec gestion du User-Agent
+async function fetchAmazonPage(url) {
+  const options = {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36',
+      'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+    }
+  };
 
-  const paginatedUrl = `${url}&page=${page}`;
-  const html = await fetchAmazonPage(paginatedUrl);
-  if (!html) return;
+  try {
+    const { data } = await axios.get(url, options);
+    return data;
+  } catch (error) {
+    console.log(`Erreur lors de la récupération de la page Amazon: ${error.message}`);
+    return null;
+  }
+}
 
+// Fonction pour parser les résultats de la page Amazon avec cheerio
+async function parseAmazonResults(html) {
   const $ = cheerio.load(html);
-
-  $('.s-main-slot .s-result-item').each(async (i, element) => {
-    const productTitle = $(element).find('h2 a span').text();
-    const priceWholeText = $(element).find('.a-price-whole').text();
-    const priceFractionText = $(element).find('.a-price-fraction').text();
-    const price = parseFloat(`${priceWholeText.replace(/\s/g, '').replace(',', '.')}.${priceFractionText}`);
-
-    const oldPriceText = $(element).find('.a-text-price .a-offscreen').first().text();
-    const oldPrice = parseFloat(oldPriceText.replace(/\s/g, '').replace(',', '.'));
+  $('.s-main-slot .s-result-item').each((index, element) => {
+    const productTitle = $(element).find('h2 a span').text().trim();
     const productUrl = 'https://www.amazon.fr' + $(element).find('h2 a').attr('href');
-    const productImage = $(element).find('img').attr('src');
+    const priceWhole = $(element).find('.a-price-whole').text().trim();
+    const priceFraction = $(element).find('.a-price-fraction').text().trim();
+    const price = `${priceWhole}.${priceFraction} €`;
 
-    if (!isProductInCache(productUrl) && price && oldPrice) {
-      const discountPercentage = ((oldPrice - price) / oldPrice) * 100;
-
-      // Salon 1€ : Prix <= 1€ et réduction minimum de 50%
-      if (price <= 1 && discountPercentage >= 50) {
-        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, '1euro');
-      }
-      // Salon 2€ : Prix <= 2€ et réduction minimum de 50%
-      else if (price <= 2 && discountPercentage >= 50) {
-        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, '2euro');
-      }
-      // Salon Promo : Réduction >= 30%
-      else if (discountPercentage >= 30) {
-        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'promo');
-      }
-      // Salon Vente Flash : Vente flash détectée
-      else if (isFlashSale(element)) {
-        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'vente_flash');
-      }
-      // Salon EDP : Réduction >= 80% ou plusieurs coupons
-      else if (discountPercentage >= 80 || hasMultipleCoupons(element)) {
-        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'EDP');
-      }
-      // Salon Autre Vendeur : Prix autre vendeur beaucoup plus bas
-      else if (isOtherSellerBetter(element)) {
-        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'Autre_vendeur');
-      }
-
-      addProductToCache(productUrl, price);
+    // Si un produit est trouvé
+    if (productTitle && priceWhole) {
+      console.log(`Produit trouvé : ${productTitle} - Prix : ${price} - Lien : ${productUrl}`);
+      // Envoyer le produit dans le bon salon
+      sendProductToChannel(productTitle, price, null, 0, productUrl, null, 'promo');
     }
   });
-
-  const nextPage = $('.s-pagination-next');
-  if (nextPage && !nextPage.hasClass('s-pagination-disabled')) {
-    await monitorPage(url, page + 1, maxPages);
-  }
-}
-
-// Détecter si une vente flash est en cours
-function isFlashSale(element) {
-  return $(element).find('.a-deal-badge').length > 0;
-}
-
-// Vérifier si plusieurs coupons sont applicables
-function hasMultipleCoupons(element) {
-  return $(element).find('.couponBadge').length > 1;
-}
-
-// Vérifier si le prix d'un autre vendeur est meilleur
-function isOtherSellerBetter(element) {
-  const otherSellerPriceText = $(element).find('.olpOfferPrice').first().text();
-  if (otherSellerPriceText) {
-    const otherSellerPrice = parseFloat(otherSellerPriceText.replace(/\s/g, '').replace(',', '.'));
-    const mainPriceText = $(element).find('.a-price-whole').first().text();
-    const mainPrice = parseFloat(mainPriceText.replace(/\s/g, '').replace(',', '.'));
-    return otherSellerPrice < mainPrice;
-  }
-  return false;
 }
 
 // Envoi du produit dans le salon approprié
@@ -200,7 +161,6 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
       .setThumbnail(image)
       .addFields(
         { name: 'Prix actuel', value: `${price}€`, inline: true },
-        { name: 'Prix habituel', value: `${oldPrice}€`, inline: true },
         { name: 'Lien', value: `[Acheter maintenant](${url})`, inline: true }
       )
       .setTimestamp();
