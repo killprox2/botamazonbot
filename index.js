@@ -1,6 +1,4 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-console.log('Démarrage du bot...');
-
 const axios = require('axios');
 const cheerio = require('cheerio');
 require('dotenv').config();
@@ -18,23 +16,28 @@ const client = new Client({
 // Rôles réservés
 const ADMIN_ROLE_ID = '1286008484776775753'; // Remplacez par l'ID du rôle administrateur
 const PREMIUM_ROLE_ID = 'ID_DU_ROLE_PREMIUM'; // Remplacez par l'ID du rôle premium
+const MODO_ROLE_ID = 'ID_DU_ROLE_MODO'; // Remplacez par l'ID du rôle modo
+const VISITEUR_ROLE_ID = 'ID_DU_ROLE_VISITEUR'; // Remplacez par l'ID du rôle visiteur
 
+// Gestion des rôles par réaction d'emoji
 const roleAssignments = {
-  '💰': '1286277846754525194',
-  '📦': '1286277915515949096',
-  '🟢': '1286277613559742538',
-  '🔵': '1286277434450120714',
-  '🔥': '1286277883781709824',
-  '⚡': '1286306479275511890' // Nouveau rôle pour les ventes flash
+  '💰': '1286277846754525194', // EDP
+  '📦': '1286277915515949096', // Autre vendeur
+  '🟢': '1286277613559742538', // 2€
+  '🔵': '1286277434450120714', // 1€
+  '🔥': '1286277883781709824', // Promo
+  '⚡': '1286306479275511890'  // Vente flash
 };
 
-const channelMentions = {
-  'EDP': '<@edp>',
-  'Autre_vendeur': '<@autre vendeur>',
-  '2euro': '<@deal2>',
-  '1euro': '<@deal1>',
-  'promo': '<@promo>',
-  'vente_flash': '<@vente flash>'
+// Catégories des salons
+const channelCategories = {
+  'EDP': '1285953900066902057',
+  'promo': '1285969661535453215',
+  '2euro': '1285939619598172232',
+  '1euro': '1255863140974071893',
+  'Autre_vendeur': '1285974003307118644',
+  'deal': '1285955371252580352',
+  'vente_flash': '1286281265825321023',
 };
 
 // Configuration dynamique des paramètres du bot
@@ -76,165 +79,6 @@ function isPremium(member) {
   return member.roles.cache.has(PREMIUM_ROLE_ID);
 }
 
-// Gestion des rôles via réactions
-client.on('messageCreate', async (message) => {
-  const member = message.member;
-
-  if (message.content === '-role') {
-    const embed = new EmbedBuilder()
-      .setColor('#0099ff')
-      .setTitle('Sélection de rôles')
-      .setDescription(`Cliquez sur les emojis ci-dessous pour obtenir des notifications :
-        💰 - Erreur de prix (EDP)
-        📦 - Autres vendeurs
-        🟢 - Produits à moins de 2€
-        🔵 - Produits à moins de 1€
-        🔥 - Promotions
-        ⚡ - Ventes Flash`);
-
-    const roleMessage = await message.channel.send({ embeds: [embed] });
-    await roleMessage.react('💰');
-    await roleMessage.react('📦');
-    await roleMessage.react('🟢');
-    await roleMessage.react('🔵');
-    await roleMessage.react('🔥');
-    await roleMessage.react('⚡'); // Emoji pour ventes flash
-  }
-
-  // Commandes réservées aux administrateurs
-  if (message.content.startsWith('-set_interval')) {
-    if (!isAdmin(member)) {
-      message.reply('Seuls les administrateurs peuvent utiliser cette commande.');
-      return;
-    }
-
-    const args = message.content.split(' ');
-    const intervalType = args[1];
-    const newInterval = parseInt(args[2]);
-
-    if (isNaN(newInterval)) {
-      message.reply('Veuillez spécifier un intervalle valide en millisecondes.');
-      return;
-    }
-
-    switch (intervalType) {
-      case 'edp':
-        CHECK_INTERVAL_EDP = newInterval;
-        message.reply(`Intervalle des erreurs de prix modifié à ${newInterval} ms.`);
-        break;
-      case 'vente_flash':
-        CHECK_INTERVAL_VENTE_FLASH = newInterval;
-        message.reply(`Intervalle des ventes flash modifié à ${newInterval} ms.`);
-        break;
-      case 'other':
-        CHECK_INTERVAL_OTHER = newInterval;
-        message.reply(`Intervalle des autres produits modifié à ${newInterval} ms.`);
-        break;
-      default:
-        message.reply('Type d\'intervalle non valide. Utilisez : edp, vente_flash ou other.');
-    }
-  }
-
-  // Commandes réservées aux membres Premium
-  if (message.content.startsWith('-search_amazon')) {
-    if (!isPremium(member)) {
-      message.reply('Cette commande est réservée aux membres Premium.');
-      return;
-    }
-
-    const args = message.content.split(' ');
-    const searchQuery = args.slice(1).join(' ');
-    if (!searchQuery) {
-      message.reply('Veuillez spécifier un terme de recherche.');
-      return;
-    }
-
-    const searchUrl = `https://www.amazon.fr/s?k=${encodeURIComponent(searchQuery)}`;
-    const html = await fetchAmazonPage(searchUrl);
-
-    if (html) {
-      const $ = cheerio.load(html);
-      const productTitle = $('.s-main-slot .s-result-item h2 a span').first().text();
-      const productUrl = 'https://www.amazon.fr' + $('.s-main-slot .s-result-item h2 a').first().attr('href');
-      const price = $('.s-main-slot .s-result-item .a-price-whole').first().text();
-
-      if (productTitle) {
-        const embed = new EmbedBuilder()
-          .setTitle(productTitle)
-          .setURL(productUrl)
-          .addFields(
-            { name: 'Prix', value: `${price}€`, inline: true },
-            { name: 'Lien', value: `[Acheter maintenant](${productUrl})`, inline: true }
-          )
-          .setColor('#00FF00');
-        message.channel.send({ embeds: [embed] });
-      } else {
-        message.reply('Aucun produit trouvé.');
-      }
-    } else {
-      message.reply('Erreur lors de la recherche.');
-    }
-  }
-
-  // Commande pour stopper la surveillance
-  if (message.content.startsWith('-stop_monitoring')) {
-    if (!isAdmin(member)) {
-      message.reply('Seuls les administrateurs peuvent utiliser cette commande.');
-      return;
-    }
-
-    stopMonitoring();
-    message.reply('Toutes les surveillances ont été temporairement arrêtées.');
-  }
-
-  // Commande pour démarrer la surveillance
-  if (message.content.startsWith('-start_monitoring')) {
-    if (!isAdmin(member)) {
-      message.reply('Seuls les administrateurs peuvent utiliser cette commande.');
-      return;
-    }
-
-    startMonitoring();
-    message.reply('La surveillance des produits a démarré.');
-  }
-
-  // Commande pour vérifier le statut du bot
-  if (message.content.startsWith('-status')) {
-    const totalProducts = productCache.size;
-    const totalDeals = dealWatchList.size;
-    const statusMessage = `
-      **Statut du Bot :**
-      - Produits surveillés : ${totalProducts}
-      - Deals actifs : ${totalDeals}
-      - Intervalle EDP : ${CHECK_INTERVAL_EDP} ms
-      - Intervalle Ventes Flash : ${CHECK_INTERVAL_VENTE_FLASH} ms
-      - Intervalle autres produits : ${CHECK_INTERVAL_OTHER} ms
-    `;
-    message.reply(statusMessage);
-  }
-});
-
-// Ajout/Suppression des rôles en fonction des réactions
-client.on('messageReactionAdd', async (reaction, user) => {
-  if (user.bot) return;
-  const roleId = roleAssignments[reaction.emoji.name];
-  if (roleId) {
-    const member = await reaction.message.guild.members.fetch(user.id);
-    const role = reaction.message.guild.roles.cache.get(roleId);
-    if (role) await member.roles.add(role);
-  }
-});
-
-client.on('messageReactionRemove', async (reaction, user) => {
-  if (user.bot) return;
-  const roleId = roleAssignments[reaction.emoji.name];
-  if (roleId) {
-    const member = await reaction.message.guild.members.fetch(user.id);
-    const role = reaction.message.guild.roles.cache.get(roleId);
-    if (role) await member.roles.remove(role);
-  }
-});
-
 // Fonction pour démarrer la surveillance
 function startMonitoring() {
   monitoringInterval = setInterval(monitorAmazonProducts, CHECK_INTERVAL_OTHER);
@@ -246,9 +90,6 @@ function stopMonitoring() {
   clearInterval(monitoringInterval);
   clearInterval(dealInterval);
 }
-
-// Sauvegarder le cache à intervalles réguliers
-setInterval(saveCache, 60000); // Sauvegarder toutes les minutes
 
 // Surveillance des produits Amazon
 async function monitorAmazonProducts() {
@@ -274,7 +115,7 @@ async function monitorPage(url, page, maxPages) {
   if (!html) return;
 
   const $ = cheerio.load(html);
-  
+
   $('.s-main-slot .s-result-item').each(async (i, element) => {
     const productTitle = $(element).find('h2 a span').text();
     const priceWholeText = $(element).find('.a-price-whole').text();
@@ -289,32 +130,83 @@ async function monitorPage(url, page, maxPages) {
     if (!isProductInCache(productUrl) && price && oldPrice) {
       const discountPercentage = ((oldPrice - price) / oldPrice) * 100;
 
-      // Envoi des notifications DM personnalisées si activées
-      userNotifications.forEach(async (prefs, userId) => {
-        if (prefs.category.toLowerCase() === 'promo' && price >= prefs.minPrice && price <= prefs.maxPrice) {
-          try {
-            const user = await client.users.fetch(userId);
-            if (user) {
-              await user.send(`Produit intéressant détecté: **${productTitle}** - Prix: ${price.toFixed(2)}€\n[Voir sur Amazon](${productUrl})`);
-            }
-          } catch (error) {
-            logMessage(`Erreur lors de l'envoi du DM à l'utilisateur ${userId}: ${error.message}`);
-          }
-        }
-      });
-
-      if (discountPercentage >= 10) {
+      // Salon 1€ : Prix <= 1€ et réduction minimum de 50%
+      if (price <= 1 && discountPercentage >= 50) {
+        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, '1euro');
+      }
+      // Salon 2€ : Prix <= 2€ et réduction minimum de 50%
+      else if (price <= 2 && discountPercentage >= 50) {
+        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, '2euro');
+      }
+      // Salon Promo : Réduction >= 30%
+      else if (discountPercentage >= 30) {
         sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'promo');
       }
-      // Ajoutez d'autres conditions ici pour 2euro, 1euro, EDP, etc.
+      // Salon Vente Flash : Vente flash détectée
+      else if (isFlashSale(element)) {
+        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'vente_flash');
+      }
+      // Salon EDP : Réduction >= 80% ou plusieurs coupons
+      else if (discountPercentage >= 80 || hasMultipleCoupons(element)) {
+        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'EDP');
+      }
+      // Salon Autre Vendeur : Prix autre vendeur beaucoup plus bas
+      else if (isOtherSellerBetter(element)) {
+        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, 'Autre_vendeur');
+      }
+
       addProductToCache(productUrl, price);
     }
   });
 
-  // Vérifier s'il y a une page suivante et la parcourir si elle existe
   const nextPage = $('.s-pagination-next');
   if (nextPage && !nextPage.hasClass('s-pagination-disabled')) {
     await monitorPage(url, page + 1, maxPages);
+  }
+}
+
+// Détecter si une vente flash est en cours
+function isFlashSale(element) {
+  return $(element).find('.a-deal-badge').length > 0;
+}
+
+// Vérifier si plusieurs coupons sont applicables
+function hasMultipleCoupons(element) {
+  return $(element).find('.couponBadge').length > 1;
+}
+
+// Vérifier si le prix d'un autre vendeur est meilleur
+function isOtherSellerBetter(element) {
+  const otherSellerPriceText = $(element).find('.olpOfferPrice').first().text();
+  if (otherSellerPriceText) {
+    const otherSellerPrice = parseFloat(otherSellerPriceText.replace(/\s/g, '').replace(',', '.'));
+    const mainPriceText = $(element).find('.a-price-whole').first().text();
+    const mainPrice = parseFloat(mainPriceText.replace(/\s/g, '').replace(',', '.'));
+    return otherSellerPrice < mainPrice;
+  }
+  return false;
+}
+
+// Envoi du produit dans le salon approprié
+function sendProductToChannel(title, price, oldPrice, discountPercentage, url, image, category) {
+  const channelId = channelCategories[category];
+  const channel = client.channels.cache.get(channelId);
+
+  if (channel) {
+    const embed = new EmbedBuilder()
+      .setColor('#0099ff')
+      .setTitle(title)
+      .setURL(url)
+      .setDescription(discountPercentage > 0 ? `Réduction de ${Math.round(discountPercentage)}%` : '')
+      .setThumbnail(image)
+      .addFields(
+        { name: 'Prix actuel', value: `${price}€`, inline: true },
+        { name: 'Prix habituel', value: `${oldPrice}€`, inline: true },
+        { name: 'Lien', value: `[Acheter maintenant](${url})`, inline: true }
+      )
+      .setTimestamp();
+
+    channel.send({ embeds: [embed] });
   }
 }
 
@@ -371,37 +263,6 @@ async function fetchAmazonPage(url, retries = 0) {
   }
 }
 
-// Envoi du produit dans le salon approprié
-function sendProductToChannel(title, price, oldPrice, discountPercentage, url, image, category) {
-  const channelId = {
-    'EDP': '1285953900066902057',
-    'promo': '1285969661535453215',
-    '2euro': '1285939619598172232',
-    '1euro': '1255863140974071893',
-    'Autre_vendeur': '1285974003307118644',
-    'deal': '1285955371252580352',
-    'vente_flash': '1286281265825321023' // Nouveau salon pour les ventes flash
-  }[category];
-
-  const channel = client.channels.cache.get(channelId);
-  if (channel) {
-    const embed = new EmbedBuilder()
-      .setColor('#0099ff')
-      .setTitle(title)
-      .setURL(url)
-      .setDescription(discountPercentage > 0 ? `Réduction de ${Math.round(discountPercentage)}%` : '')
-      .setThumbnail(image)
-      .addFields(
-        { name: 'Prix actuel', value: `${price}€`, inline: true },
-        { name: 'Prix habituel', value: `${oldPrice}€`, inline: true },
-        { name: 'Lien', value: `[Acheter maintenant](${url})`, inline: true }
-      )
-      .setTimestamp();
-
-    channel.send({ embeds: [embed] });
-  }
-}
-
 // Fonction pour loguer des messages dans le salon "logs"
 function logMessage(message) {
   const logsChannel = client.channels.cache.get(logsChannelId);
@@ -420,4 +281,5 @@ process.on('SIGINT', () => {
 });
 
 loadCache(); // Charge le cache au démarrage
+
 client.login(process.env.TOKEN); // Assurez-vous que le token est défini dans un fichier .env
