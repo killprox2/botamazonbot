@@ -69,27 +69,26 @@ function saveCache() {
   fs.writeFileSync('cache.json', data);
 }
 
-// Vérifier si un utilisateur a le rôle admin
-function isAdmin(member) {
-  return member.roles.cache.has(ADMIN_ROLE_ID);
-}
-
-// Vérifier si un utilisateur est Premium
-function isPremium(member) {
-  return member.roles.cache.has(PREMIUM_ROLE_ID);
-}
-
 // Fonction pour démarrer la surveillance
 function startMonitoring() {
   monitoringInterval = setInterval(monitorAmazonProducts, CHECK_INTERVAL_OTHER);
   dealInterval = setInterval(monitorDeals, CHECK_INTERVAL_OTHER);
+  console.log('Moniteur démarré automatiquement au lancement du bot.');
 }
 
 // Fonction pour arrêter la surveillance
 function stopMonitoring() {
   clearInterval(monitoringInterval);
   clearInterval(dealInterval);
+  console.log('Moniteur arrêté.');
 }
+
+// Ajoute cet événement pour démarrer le moniteur au lancement du bot
+client.once('ready', () => {
+  console.log(`Connecté en tant que ${client.user.tag}`);
+  loadCache(); // Charger le cache au démarrage
+  startMonitoring(); // Démarre la surveillance immédiatement
+});
 
 // Surveillance des produits Amazon
 async function monitorAmazonProducts() {
