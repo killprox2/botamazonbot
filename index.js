@@ -26,7 +26,7 @@ const roleAssignments = {
   '🟢': '1286277613559742538', // 2€
   '🔵': '1286277434450120714', // 1€
   '🔥': '1286277883781709824', // Promo
-  '⚡': '1286306479275511890' // Vente flash
+  '⚡': '1286306479275511890'  // Vente flash
 };
 
 // Catégories des salons
@@ -47,7 +47,8 @@ const channelCategories = {
 
 // Paramètres du bot
 let MAX_PAGES = 5;
-let DELAY_BETWEEN_URLS = 120000; // 2 minutes
+let DELAY_BETWEEN_URLS = 180000; // 3 minutes entre chaque requête
+const PROXY = process.env.PROXY;  // Ajoutez votre proxy ici ou gérez-le via .env
 
 const productCache = new Map();
 const logsChannelId = '1285977835365994506';
@@ -110,7 +111,7 @@ client.once('ready', () => {
   startMonitoring();
 });
 
-// Surveillance des produits Amazon avec une pause de 2 minutes entre chaque URL
+// Surveillance des produits Amazon avec une pause de 3 minutes entre chaque URL
 async function monitorAmazonProducts() {
   if (productCache.size === 0) {
     logMessage('Aucune URL de produit trouvée dans le cache. Veuillez ajouter des produits à surveiller.');
@@ -125,13 +126,7 @@ async function monitorAmazonProducts() {
       const html = await fetchAmazonPage(url);
       if (html) {
         logMessage(`Scraping réussi pour l'URL : ${url}`);
-        // Ne pas paginer pour l'URL des deals
-        if (url !== 'https://www.amazon.fr/deals') {
-          await monitorPage(url, 1, MAX_PAGES, category);
-        } else {
-          // Scraper uniquement la première page pour cette URL
-          await monitorPage(url, 1, 1, category);
-        }
+        await monitorPage(url, 1, MAX_PAGES, category);
       } else {
         logMessage(`Scraping échoué pour l'URL : ${url}`);
       }
@@ -139,8 +134,8 @@ async function monitorAmazonProducts() {
       logMessage(`Erreur lors de la récupération des produits de l'URL ${url}: ${error.message}`);
     }
 
-    logMessage(`Pause de 2 minutes avant de scraper l'URL suivante...`);
-    await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_URLS)); // Pause de 2 minutes
+    logMessage(`Pause de 3 minutes avant de scraper l'URL suivante...`);
+    await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_URLS)); // Pause de 3 minutes
   }
 
   logMessage('Surveillance des produits terminée.');
@@ -150,7 +145,6 @@ async function monitorAmazonProducts() {
 async function monitorPage(url, page, maxPages, category) {
   if (page > maxPages) return;
 
-  // Ne pas modifier l'URL pour les deals
   const paginatedUrl = url === 'https://www.amazon.fr/deals' ? url : `${url}&page=${page}`;
   logMessage(`Scraping de la page ${page} de l'URL ${paginatedUrl} pour la catégorie ${category}`);
 
@@ -212,7 +206,8 @@ async function fetchAmazonPage(url, retries = 0) {
     headers: {
       'User-Agent': getRandomUserAgent(), // Utilisation d'un User-Agent aléatoire
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-    }
+    },
+    proxy: PROXY ? { host: PROXY.split(':')[0], port: PROXY.split(':')[1] } : null // Utilisation d'un proxy si défini
   };
 
   try {
