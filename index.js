@@ -48,8 +48,9 @@ const channelCategories = {
 
 // Paramètres du bot
 let MAX_PAGES = 5;
-let DELAY_BETWEEN_URLS = 180000; // 3 minutes entre chaque requête
+let DELAY_BETWEEN_URLS = 300000; // 5 minutes entre chaque requête
 let currentProxy = ''; // Stocker le proxy utilisé
+let proxyFailures = 0; // Compteur d'échecs pour le proxy actuel
 
 const productCache = new Map();
 const logsChannelId = '1285977835365994506';
@@ -79,6 +80,7 @@ async function getProxyFromProxyScrape() {
 
       if (port && !isNaN(port) && parseInt(port) > 0 && parseInt(port) < 65536) {
         currentProxy = newProxy; // Prendre un proxy valide
+        proxyFailures = 0; // Réinitialiser le compteur d'échecs pour le nouveau proxy
         logMessage(`Nouveau proxy utilisé : ${currentProxy}`);
       } else {
         logMessage(`Proxy mal formé ou port invalide : ${newProxy}, en sélectionnant un autre.`);
@@ -139,7 +141,7 @@ client.once('ready', () => {
   startMonitoring();
 });
 
-// Surveillance des produits Amazon avec une pause de 3 minutes entre chaque URL
+// Surveillance des produits Amazon avec un délai plus long entre les requêtes
 async function monitorAmazonProducts() {
   if (productCache.size === 0) {
     logMessage('Aucune URL de produit trouvée dans le cache. Veuillez ajouter des produits à surveiller.');
@@ -162,8 +164,8 @@ async function monitorAmazonProducts() {
       logMessage(`Erreur lors de la récupération des produits de l'URL ${url}: ${error.message}`);
     }
 
-    logMessage(`Pause de 3 minutes avant de scraper l'URL suivante...`);
-    await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_URLS)); // Pause de 3 minutes
+    logMessage(`Pause de 5 minutes avant de scraper l'URL suivante...`); // Augmenter le délai à 5 minutes
+    await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_URLS)); // Pause de 5 minutes
   }
 
   logMessage('Surveillance des produits terminée.');
@@ -245,15 +247,22 @@ async function fetchAmazonPage(url, retries = 0) {
     return data;
   } catch (error) {
     logMessage(`Erreur lors de la récupération de l'URL ${url}: ${error.message}`);
-    if (error.response) {
-      logMessage(`Code d'erreur HTTP : ${error.response.status}`);
+    proxyFailures++;
+
+    // Si le proxy échoue 3 fois de suite, changer de proxy
+    if (proxyFailures >= 3) {
+      logMessage(`Trop d'échecs avec le proxy ${currentProxy}, récupération d'un nouveau proxy...`);
+      await getProxyFromProxyScrape();
+      proxyFailures = 0; // Réinitialiser le compteur d'échecs
     }
+
     if (retries < 5) {
       const delay = 10000 * (retries + 1);
       logMessage(`Nouvelle tentative pour accéder à ${url}, tentative ${retries + 1} après ${delay / 1000} secondes`);
       await new Promise(resolve => setTimeout(resolve, delay));
       return fetchAmazonPage(url, retries + 1);
     }
+
     logMessage(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
     return null;
   }
