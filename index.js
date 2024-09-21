@@ -70,10 +70,8 @@ function getRandomUserAgent() {
 // Fonction pour obtenir un proxy depuis ProxyScrape et filtrer les proxys mal formés
 async function getProxyFromProxyScrape() {
   try {
-    const response = await axios.get('https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text');
-    const proxies = response.data.split('\n')
-      .filter(Boolean) // Filtrer les lignes vides
-      .filter(proxy => proxy.includes(':')); // S'assurer que chaque proxy contient un port
+    const response = await axios.get('https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text');
+    const proxies = response.data.split('\n').filter(Boolean); // Filtrer les lignes vides
 
     if (proxies.length > 0) {
       const newProxy = proxies[Math.floor(Math.random() * proxies.length)];
