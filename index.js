@@ -4,6 +4,7 @@ const cheerio = require('cheerio');
 require('dotenv').config();
 const fs = require('fs');
 
+// Discord Client Setup
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -48,7 +49,7 @@ const channelCategories = {
 // Paramètres du bot
 let MAX_PAGES = 5;
 let DELAY_BETWEEN_URLS = 180000; // 3 minutes entre chaque requête
-const PROXY = process.env.PROXY;  // Ajoutez votre proxy ici ou gérez-le via .env
+let currentProxy = ''; // Stocker le proxy utilisé
 
 const productCache = new Map();
 const logsChannelId = '1285977835365994506';
@@ -64,6 +65,20 @@ const userAgents = [
 // Fonction pour obtenir un User-Agent aléatoire
 function getRandomUserAgent() {
   return userAgents[Math.floor(Math.random() * userAgents.length)];
+}
+
+// Fonction pour obtenir un proxy depuis ProxyScrape
+async function getProxyFromProxyScrape() {
+  try {
+    const response = await axios.get('https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text');
+    const proxies = response.data.split('\n').filter(Boolean); // Filtrer les lignes vides
+    if (proxies.length > 0) {
+      currentProxy = proxies[Math.floor(Math.random() * proxies.length)]; // Prendre un proxy aléatoire
+      logMessage(`Nouveau proxy utilisé : ${currentProxy}`);
+    }
+  } catch (error) {
+    logMessage('Erreur lors de la récupération des proxys: ' + error.message);
+  }
 }
 
 // Charger le cache
@@ -84,6 +99,8 @@ function saveCache() {
 // Démarrer la surveillance
 async function startMonitoring() {
   logMessage('Démarrage de la surveillance des produits Amazon...');
+  await getProxyFromProxyScrape(); // Obtenir un proxy avant de commencer
+
   const generalSearchUrl = 'https://www.amazon.fr/deals';
 
   productCache.set(generalSearchUrl, 'EDP');
@@ -170,7 +187,6 @@ async function monitorPage(url, page, maxPages, category) {
 
     if (price && oldPrice) {
       const discountPercentage = ((oldPrice - price) / oldPrice) * 100;
-
       logMessage(`Produit trouvé : ${productTitle}, Prix : ${price}, Ancien prix : ${oldPrice}, Réduction : ${discountPercentage}%, ajouter dans le salon ${category}`);
 
       productsFound++;
@@ -188,30 +204,31 @@ async function monitorPage(url, page, maxPages, category) {
   });
 
   logMessage(`Produits trouvés sur la page ${page} pour la catégorie ${category} : ${productsFound}`);
-  
+
   const nextPage = $('.s-pagination-next');
   if (nextPage && !nextPage.hasClass('s-pagination-disabled') && url !== 'https://www.amazon.fr/deals') {
     await monitorPage(url, page + 1, maxPages, category);
   }
 }
 
-// Fonction pour récupérer les pages Amazon avec gestion des erreurs et User-Agent aléatoire
+// Fonction pour récupérer les pages Amazon avec un proxy et User-Agent aléatoire
 async function fetchAmazonPage(url, retries = 0) {
   if (!url || url.trim() === '') {
     logMessage(`Erreur: URL vide ou incorrecte: ${url}`);
     return null;
   }
 
+  const proxy = currentProxy ? { host: currentProxy.split(':')[0], port: currentProxy.split(':')[1] } : null;
   const options = {
     headers: {
       'User-Agent': getRandomUserAgent(), // Utilisation d'un User-Agent aléatoire
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
     },
-    proxy: PROXY ? { host: PROXY.split(':')[0], port: PROXY.split(':')[1] } : null // Utilisation d'un proxy si défini
+    proxy: proxy // Utilisation du proxy aléatoire récupéré
   };
 
   try {
-    logMessage(`Tentative de récupération de l'URL : ${url}`);
+    logMessage(`Tentative de récupération de l'URL : ${url} avec proxy ${currentProxy}`);
     const { data } = await axios.get(url, options);
     logMessage(`Page récupérée avec succès pour ${url}`);
     return data;
@@ -228,6 +245,28 @@ async function fetchAmazonPage(url, retries = 0) {
     }
     logMessage(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
     return null;
+  }
+}
+
+// Fonction pour envoyer un produit au salon approprié
+function sendProductToChannel(title, price, oldPrice, discount, url, imageUrl, category) {
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setURL(url)
+    .setImage(imageUrl)
+    .addFields(
+      { name: 'Prix actuel', value: `${price} €`, inline: true },
+      { name: 'Ancien prix', value: `${oldPrice} €`, inline: true },
+      { name: 'Réduction', value: `${discount}%`, inline: true }
+    )
+    .setColor('#ff9900')
+    .setTimestamp();
+
+  const channel = client.channels.cache.get(channelCategories[category]);
+  if (channel) {
+    channel.send({ embeds: [embed] });
+  } else {
+    logMessage(`Erreur : salon non trouvé pour la catégorie ${category}`);
   }
 }
 
@@ -249,3 +288,4 @@ process.on('SIGINT', () => {
 });
 
 client.login(process.env.TOKEN);
+
