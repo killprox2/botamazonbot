@@ -125,7 +125,12 @@ async function monitorAmazonProducts() {
       const html = await fetchAmazonPage(url);
       if (html) {
         logMessage(`Scraping réussi pour l'URL : ${url}`);
-        await monitorPage(url, 1, MAX_PAGES, category);
+        if (url !== 'https://www.amazon.fr/deals') { // Ne pas paginer pour /deals
+          await monitorPage(url, 1, MAX_PAGES, category);
+        } else {
+          // Scraper uniquement la première page
+          await monitorPage(url, 1, 1, category);
+        }
       } else {
         logMessage(`Scraping échoué pour l'URL : ${url}`);
       }
