@@ -159,7 +159,7 @@ async function monitorAmazonProducts() {
       const html = await fetchAmazonPage(url);
       if (html) {
         logMessage(`Scraping réussi pour l'URL : ${url}`);
-        await monitorPage(url, 1, MAX_PAGES, category);
+        await monitorPage(url, category);
       } else {
         logMessage(`Scraping échoué pour l'URL : ${url}`);
       }
@@ -174,16 +174,13 @@ async function monitorAmazonProducts() {
   logMessage('Surveillance des produits terminée.');
 }
 
-// Scraping des pages
-async function monitorPage(url, page, maxPages, category) {
-  if (page > maxPages) return;
+// Scraping des pages sans pagination pour les deals
+async function monitorPage(url, category) {
+  logMessage(`Scraping de l'URL ${url} pour la catégorie ${category}`);
 
-  const paginatedUrl = url.includes('page=') ? url : `${url}&page=${page}`;
-  logMessage(`Scraping de la page ${page} de l'URL ${paginatedUrl} pour la catégorie ${category}`);
-
-  const html = await fetchAmazonPage(paginatedUrl);
+  const html = await fetchAmazonPage(url);
   if (!html) {
-    logMessage(`Impossible de récupérer la page ${page} de l'URL ${url}`);
+    logMessage(`Impossible de récupérer l'URL ${url}`);
     return;
   }
 
@@ -219,12 +216,7 @@ async function monitorPage(url, page, maxPages, category) {
     }
   });
 
-  logMessage(`Produits trouvés sur la page ${page} pour la catégorie ${category} : ${productsFound}`);
-
-  const nextPage = $('.s-pagination-next');
-  if (nextPage && !nextPage.hasClass('s-pagination-disabled')) {
-    await monitorPage(url, page + 1, maxPages, category);
-  }
+  logMessage(`Produits trouvés pour la catégorie ${category} : ${productsFound}`);
 }
 
 // Fonction pour identifier une vente flash
