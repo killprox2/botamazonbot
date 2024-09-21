@@ -54,6 +54,19 @@ const productCache = new Map();
 const dealWatchList = new Map(); 
 const logsChannelId = '1285977835365994506'; 
 
+// Liste de plusieurs User-Agents pour éviter d'être bloqué
+const userAgents = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.150 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+];
+
+// Fonction pour obtenir un User-Agent aléatoire
+function getRandomUserAgent() {
+  return userAgents[Math.floor(Math.random() * userAgents.length)];
+}
+
 // Charger le cache
 function loadCache() {
   if (fs.existsSync('cache.json')) {
@@ -133,40 +146,6 @@ async function monitorAmazonProducts() {
   });
   await Promise.all(promises);
   logMessage('Surveillance des produits terminée.');
-}
-
-// Surveillance des deals
-async function monitorDeals() {
-  if (dealWatchList.size === 0) {
-    logMessage('Aucun deal à surveiller.');
-    return;
-  }
-
-  logMessage('Début de la surveillance des deals...');
-  const promises = [...dealWatchList.entries()].map(async ([url, maxPrice]) => {
-    try {
-      logMessage(`Surveillance du deal à l'URL : ${url} avec prix maximum de ${maxPrice}`);
-      const html = await fetchAmazonPage(url);
-      if (html) {
-        const $ = cheerio.load(html);
-        const priceWholeText = $('.a-price-whole').first().text();
-        const priceFractionText = $('.a-price-fraction').first().text();
-        const price = parseFloat(`${priceWholeText.replace(/\s/g, '').replace(',', '.')}.${priceFractionText}`);
-        if (price <= maxPrice) {
-          logMessage(`Deal trouvé : ${url} avec un prix de ${price}`);
-          sendProductToChannel('Produit surveillé', price.toFixed(2), maxPrice, 0, url, '', 'deal');
-        } else {
-          logMessage(`Prix actuel ${price} supérieur au prix maximum ${maxPrice} pour l'URL : ${url}`);
-        }
-      } else {
-        logMessage(`Scraping échoué pour l'URL : ${url}`);
-      }
-    } catch (error) {
-      logMessage(`Erreur lors de la surveillance du deal pour l'URL ${url}: ${error.message}`);
-    }
-  });
-  await Promise.all(promises);
-  logMessage('Surveillance des deals terminée.');
 }
 
 // Scraping des pages
@@ -286,7 +265,7 @@ async function fetchAmazonPage(url, retries = 0) {
 
   const options = {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36',
+      'User-Agent': getRandomUserAgent(), // Utilisation d'un User-Agent aléatoire
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
     }
   };
@@ -302,8 +281,9 @@ async function fetchAmazonPage(url, retries = 0) {
       logMessage(`Code d'erreur HTTP : ${error.response.status}`);
     }
     if (retries < 5) {
-      logMessage(`Nouvelle tentative pour accéder à ${url}, tentative ${retries + 1}`);
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      const delay = 10000 * (retries + 1); // Ajout d'un délai croissant avant chaque nouvelle tentative
+      logMessage(`Nouvelle tentative pour accéder à ${url}, tentative ${retries + 1} après ${delay / 1000} secondes`);
+      await new Promise(resolve => setTimeout(resolve, delay)); // Attendre avant de réessayer
       return fetchAmazonPage(url, retries + 1);
     }
     logMessage(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
