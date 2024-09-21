@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const https = require('https'); // Ajout du module https
+const https = require('https');
 require('dotenv').config();
 const fs = require('fs');
 
@@ -48,7 +48,7 @@ const channelCategories = {
 };
 
 // Paramètres du bot
-let MAX_PAGES = 5;
+let MAX_PAGES = 10; // Modifier pour scrapper plus de pages
 let DELAY_BETWEEN_URLS = 300000; // 5 minutes entre chaque requête
 let currentProxy = ''; // Stocker le proxy utilisé
 let proxyFailures = 0; // Compteur d'échecs pour le proxy actuel
@@ -165,8 +165,8 @@ async function monitorAmazonProducts() {
       logMessage(`Erreur lors de la récupération des produits de l'URL ${url}: ${error.message}`);
     }
 
-    logMessage(`Pause de 5 minutes avant de scraper l'URL suivante...`); // Augmenter le délai à 5 minutes
-    await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_URLS)); // Pause de 5 minutes
+    logMessage(`Pause de 5 minutes avant de scraper l'URL suivante...`);
+    await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_URLS));
   }
 
   logMessage('Surveillance des produits terminée.');
@@ -205,7 +205,7 @@ async function monitorPage(url, page, maxPages, category) {
 
       productsFound++;
 
-      if (category === 'EDP' && discountPercentage >= 80) {
+      if (category === 'EDP' && discountPercentage >= 70) { // Modifier la réduction de 80% à 70%
         sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, category);
       } else if (category === 'Autre_vendeur' && isOtherSellerBetter($, element)) {
         sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, category);
@@ -234,18 +234,18 @@ async function fetchAmazonPage(url, retries = 0) {
 
   const proxy = currentProxy ? { host: currentProxy.split(':')[0], port: currentProxy.split(':')[1] } : null;
   const httpsAgent = new https.Agent({
-    rejectUnauthorized: false, // Ignore les certificats non autorisés (utile si les proxys ont des certificats non fiables)
-    minVersion: 'TLSv1.2', // Forcer l'utilisation de TLS 1.2
-    timeout: 10000 // Augmenter le délai avant l'abandon pour les proxys lents
+    rejectUnauthorized: false, 
+    minVersion: 'TLSv1.2',
+    timeout: 10000 
   });
 
   const options = {
     headers: {
-      'User-Agent': getRandomUserAgent(), // Utilisation d'un User-Agent aléatoire
+      'User-Agent': getRandomUserAgent(), 
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
     },
-    proxy: proxy, // Utilisation du proxy aléatoire récupéré
-    httpsAgent // Forcer TLS 1.2 avec un délai augmenté
+    proxy: proxy,
+    httpsAgent
   };
 
   try {
@@ -257,11 +257,10 @@ async function fetchAmazonPage(url, retries = 0) {
     logMessage(`Erreur lors de la récupération de l'URL ${url}: ${error.message}`);
     proxyFailures++;
 
-    // Si le proxy échoue 3 fois de suite, changer de proxy
-    if (proxyFailures >= 3) {
+    if (proxyFailures >= 2) { // Modifier le seuil d'échecs pour changer de proxy plus rapidement
       logMessage(`Trop d'échecs avec le proxy ${currentProxy}, récupération d'un nouveau proxy...`);
       await getProxyFromProxyScrape();
-      proxyFailures = 0; // Réinitialiser le compteur d'échecs
+      proxyFailures = 0;
     }
 
     if (retries < 5) {
