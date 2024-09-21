@@ -1,7 +1,5 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const axios = require('axios');
-const cheerio = require('cheerio');
-const https = require('https');
+const puppeteer = require('puppeteer');
 require('dotenv').config();
 const fs = require('fs');
 
@@ -50,48 +48,22 @@ const channelCategories = {
 // Paramètres du bot
 let MAX_PAGES = 10;
 let DELAY_BETWEEN_URLS = 300000; // 5 minutes entre chaque requête
-let currentProxy = ''; // Stocker le proxy utilisé
-let proxyFailures = 0; // Compteur d'échecs pour le proxy actuel
 
 const productCache = new Map();
 const logsChannelId = '1285977835365994506';
 
-// Liste de plusieurs User-Agents pour éviter d'être bloqué
-const userAgents = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.150 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-];
-
-// Fonction pour obtenir un User-Agent aléatoire
-function getRandomUserAgent() {
-  return userAgents[Math.floor(Math.random() * userAgents.length)];
-}
-
-// Fonction pour obtenir un proxy depuis ProxyScrape et filtrer les proxys mal formés
-async function getProxyFromProxyScrape() {
+// Fonction pour utiliser Puppeteer et scrapper la page avec le JavaScript activé
+async function fetchPageWithPuppeteer(url) {
   try {
-    const response = await axios.get('https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text');
-    const proxies = response.data.split('\n').filter(Boolean); // Filtrer les lignes vides
-
-    if (proxies.length > 0) {
-      const newProxy = proxies[Math.floor(Math.random() * proxies.length)];
-      const [host, port] = newProxy.split(':'); // Séparer l'IP et le port
-
-      if (port && !isNaN(port) && parseInt(port) > 0 && parseInt(port) < 65536) {
-        currentProxy = newProxy; // Prendre un proxy valide
-        proxyFailures = 0; // Réinitialiser le compteur d'échecs pour le nouveau proxy
-        logMessage(`Nouveau proxy utilisé : ${currentProxy}`);
-      } else {
-        logMessage(`Proxy mal formé ou port invalide : ${newProxy}, en sélectionnant un autre.`);
-        await getProxyFromProxyScrape(); // Réessayer si le proxy est mal formé ou invalide
-      }
-    } else {
-      logMessage('Aucun proxy valide disponible.');
-    }
+    const browser = await puppeteer.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: 'networkidle2' }); // Attend que le réseau soit inactif pour charger complètement la page
+    const content = await page.content();
+    await browser.close();
+    return content;
   } catch (error) {
-    logMessage('Erreur lors de la récupération des proxys: ' + error.message);
+    logMessage(`Erreur avec Puppeteer : ${error.message}`);
+    return null;
   }
 }
 
@@ -113,7 +85,6 @@ function saveCache() {
 // Démarrer la surveillance
 async function startMonitoring() {
   logMessage('Démarrage de la surveillance des produits Amazon...');
-  await getProxyFromProxyScrape(); // Obtenir un proxy avant de commencer
 
   // URL spécifique pour le salon "vente_flash"
   const venteFlashUrl = 'https://www.amazon.fr/deals';
@@ -156,10 +127,10 @@ async function monitorAmazonProducts() {
   for (const [url, category] of productCache.entries()) {
     try {
       logMessage(`Tentative de scraping de l'URL : ${url} pour la catégorie : ${category}`);
-      const html = await fetchAmazonPage(url);
+      const html = await fetchPageWithPuppeteer(url);
       if (html) {
         logMessage(`Scraping réussi pour l'URL : ${url}`);
-        await monitorPage(url, category);
+        await monitorPage(html, category);
       } else {
         logMessage(`Scraping échoué pour l'URL : ${url}`);
       }
@@ -174,19 +145,11 @@ async function monitorAmazonProducts() {
   logMessage('Surveillance des produits terminée.');
 }
 
-// Scraping des pages sans pagination pour les deals
-async function monitorPage(url, category) {
-  logMessage(`Scraping de l'URL ${url} pour la catégorie ${category}`);
-
-  const html = await fetchAmazonPage(url);
-  if (!html) {
-    logMessage(`Impossible de récupérer l'URL ${url}`);
-    return;
-  }
-
-  const $ = cheerio.load(html);
-
+// Scraping des pages récupérées avec Puppeteer
+async function monitorPage(html, category) {
+  const $ = require('cheerio').load(html);
   let productsFound = 0;
+
   $('.s-main-slot .s-result-item').each(async (i, element) => {
     const productTitle = $(element).find('h2 a span').text();
     const priceWholeText = $(element).find('.a-price-whole').text();
@@ -201,78 +164,13 @@ async function monitorPage(url, category) {
     if (price && oldPrice) {
       const discountPercentage = ((oldPrice - price) / oldPrice) * 100;
       logMessage(`Produit trouvé : ${productTitle}, Prix : ${price}, Ancien prix : ${oldPrice}, Réduction : ${discountPercentage}%, ajouter dans le salon ${category}`);
-
       productsFound++;
 
-      if (category === 'EDP' && discountPercentage >= 70) {
-        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, category);
-      } else if (category === 'Autre_vendeur' && isOtherSellerBetter($, element)) {
-        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, category);
-      } else if (category === 'promo' && (isPromo($, element) || hasMultipleCoupons($, element))) {
-        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, category);
-      } else if (category === 'vente_flash' && isFlashSale($, element)) {
-        sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, category);
-      }
+      sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, category);
     }
   });
 
   logMessage(`Produits trouvés pour la catégorie ${category} : ${productsFound}`);
-}
-
-// Fonction pour identifier une vente flash
-function isFlashSale($, element) {
-  const badgeText = $(element).find('.dealBadge').text().trim();
-  return badgeText.includes('Vente Flash');
-}
-
-// Fonction pour récupérer les pages Amazon avec un proxy et un User-Agent aléatoire
-async function fetchAmazonPage(url, retries = 0) {
-  if (!url || url.trim() === '') {
-    logMessage(`Erreur: URL vide ou incorrecte: ${url}`);
-    return null;
-  }
-
-  const proxy = currentProxy ? { host: currentProxy.split(':')[0], port: currentProxy.split(':')[1] } : null;
-  const httpsAgent = new https.Agent({
-    rejectUnauthorized: false, 
-    minVersion: 'TLSv1.2',
-    timeout: 10000 
-  });
-
-  const options = {
-    headers: {
-      'User-Agent': getRandomUserAgent(), 
-      'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-    },
-    proxy: proxy,
-    httpsAgent
-  };
-
-  try {
-    logMessage(`Tentative de récupération de l'URL : ${url} avec proxy ${currentProxy}`);
-    const { data } = await axios.get(url, options);
-    logMessage(`Page récupérée avec succès pour ${url}`);
-    return data;
-  } catch (error) {
-    logMessage(`Erreur lors de la récupération de l'URL ${url}: ${error.message}`);
-    proxyFailures++;
-
-    if (proxyFailures >= 2) {
-      logMessage(`Trop d'échecs avec le proxy ${currentProxy}, récupération d'un nouveau proxy...`);
-      await getProxyFromProxyScrape();
-      proxyFailures = 0;
-    }
-
-    if (retries < 5) {
-      const delay = 10000 * (retries + 1);
-      logMessage(`Nouvelle tentative pour accéder à ${url}, tentative ${retries + 1} après ${delay / 1000} secondes`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return fetchAmazonPage(url, retries + 1);
-    }
-
-    logMessage(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
-    return null;
-  }
 }
 
 // Fonction pour envoyer un produit au salon approprié
