@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const https = require('https'); // Ajout du module https
 require('dotenv').config();
 const fs = require('fs');
 
@@ -224,7 +225,7 @@ async function monitorPage(url, page, maxPages, category) {
   }
 }
 
-// Fonction pour récupérer les pages Amazon avec un proxy et User-Agent aléatoire
+// Fonction pour récupérer les pages Amazon avec un proxy, un agent HTTPS et un User-Agent aléatoire
 async function fetchAmazonPage(url, retries = 0) {
   if (!url || url.trim() === '') {
     logMessage(`Erreur: URL vide ou incorrecte: ${url}`);
@@ -232,12 +233,18 @@ async function fetchAmazonPage(url, retries = 0) {
   }
 
   const proxy = currentProxy ? { host: currentProxy.split(':')[0], port: currentProxy.split(':')[1] } : null;
+  const httpsAgent = new https.Agent({
+    rejectUnauthorized: false, // Ignore les certificats non autorisés (utile si les proxys ont des certificats non fiables)
+    minVersion: 'TLSv1.2' // Forcer l'utilisation de TLS 1.2
+  });
+
   const options = {
     headers: {
       'User-Agent': getRandomUserAgent(), // Utilisation d'un User-Agent aléatoire
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
     },
-    proxy: proxy // Utilisation du proxy aléatoire récupéré
+    proxy: proxy, // Utilisation du proxy aléatoire récupéré
+    httpsAgent // Forcer TLS 1.2
   };
 
   try {
