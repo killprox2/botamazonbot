@@ -68,7 +68,7 @@ function getRandomUserAgent() {
 }
 async function getProxyFromProxyScrape() {
   try {
-    const response = await axios.get('https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text');
+    const response = await axios.get('https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text');
     const proxies = response.data.split('\n')
       .filter(Boolean) // Filtrer les lignes vides
       .filter(proxy => proxy.includes(':')); // S'assurer que chaque proxy contient un port
