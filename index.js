@@ -66,15 +66,26 @@ const userAgents = [
 function getRandomUserAgent() {
   return userAgents[Math.floor(Math.random() * userAgents.length)];
 }
-
-// Fonction pour obtenir un proxy depuis ProxyScrape
 async function getProxyFromProxyScrape() {
   try {
     const response = await axios.get('https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text');
-    const proxies = response.data.split('\n').filter(Boolean); // Filtrer les lignes vides
+    const proxies = response.data.split('\n')
+      .filter(Boolean) // Filtrer les lignes vides
+      .filter(proxy => proxy.includes(':')); // S'assurer que chaque proxy contient un port
+
     if (proxies.length > 0) {
-      currentProxy = proxies[Math.floor(Math.random() * proxies.length)]; // Prendre un proxy aléatoire
-      logMessage(`Nouveau proxy utilisé : ${currentProxy}`);
+      const newProxy = proxies[Math.floor(Math.random() * proxies.length)];
+      const [host, port] = newProxy.split(':'); // Séparer l'IP et le port
+
+      if (port && !isNaN(port) && parseInt(port) > 0 && parseInt(port) < 65536) {
+        currentProxy = newProxy; // Prendre un proxy valide
+        logMessage(`Nouveau proxy utilisé : ${currentProxy}`);
+      } else {
+        logMessage(`Proxy mal formé ou port invalide : ${newProxy}, en sélectionnant un autre.`);
+        await getNewProxy(); // Réessayer si le proxy est mal formé ou invalide
+      }
+    } else {
+      logMessage('Aucun proxy valide disponible.');
     }
   } catch (error) {
     logMessage('Erreur lors de la récupération des proxys: ' + error.message);
