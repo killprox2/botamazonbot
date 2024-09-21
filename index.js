@@ -275,8 +275,11 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
       )
       .setTimestamp();
 
-    channel.send({ embeds: [embed] });
-    logMessage(`Produit envoyé dans le salon ${category}: ${title}`);
+       channel.send({ embeds: [embed] })
+      .then(() => logMessage(`Produit envoyé avec succès dans le salon ${category}: ${title}`))
+      .catch(err => logMessage(`Erreur lors de l'envoi dans le salon ${category}: ${err.message}`));
+  } else {
+    logMessage(`Le salon ${category} avec l'ID ${channelId} n'a pas été trouvé ou le bot n'a pas la permission.`);
   }
 }
 
