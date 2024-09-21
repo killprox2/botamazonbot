@@ -14,19 +14,19 @@ const client = new Client({
 });
 
 // Rôles réservés
-const ADMIN_ROLE_ID = '1286008484776775753'; 
-const PREMIUM_ROLE_ID = 'ID_DU_ROLE_PREMIUM'; 
-const MODO_ROLE_ID = 'ID_DU_ROLE_MODO'; 
-const VISITEUR_ROLE_ID = 'ID_DU_ROLE_VISITEUR'; 
+const ADMIN_ROLE_ID = '1286008484776775753';
+const PREMIUM_ROLE_ID = 'ID_DU_ROLE_PREMIUM';
+const MODO_ROLE_ID = 'ID_DU_ROLE_MODO';
+const VISITEUR_ROLE_ID = 'ID_DU_ROLE_VISITEUR';
 
 // Gestion des rôles par réaction d'emoji
 const roleAssignments = {
-  '💰': '1286277846754525194', 
-  '📦': '1286277915515949096', 
-  '🟢': '1286277613559742538', 
-  '🔵': '1286277434450120714', 
-  '🔥': '1286277883781709824', 
-  '⚡': '1286306479275511890'
+  '💰': '1286277846754525194', // EDP
+  '📦': '1286277915515949096', // Autre vendeur
+  '🟢': '1286277613559742538', // 2€
+  '🔵': '1286277434450120714', // 1€
+  '🔥': '1286277883781709824', // Promo
+  '⚡': '1286306479275511890' // Vente flash
 };
 
 // Catégories des salons
@@ -47,12 +47,10 @@ const channelCategories = {
 
 // Paramètres du bot
 let MAX_PAGES = 5;
-let MIN_DELAY = 60000;  // 1 minute en millisecondes
-let MAX_DELAY = 300000; // 5 minutes en millisecondes
+let DELAY_BETWEEN_URLS = 120000; // 2 minutes
 
 const productCache = new Map();
-const dealWatchList = new Map(); 
-const logsChannelId = '1285977835365994506'; 
+const logsChannelId = '1285977835365994506';
 
 // Liste de plusieurs User-Agents pour éviter d'être bloqué
 const userAgents = [
@@ -87,10 +85,10 @@ async function startMonitoring() {
   logMessage('Démarrage de la surveillance des produits Amazon...');
   const generalSearchUrl = 'https://www.amazon.fr/s?k=';
 
-  productCache.set(generalSearchUrl, 'EDP'); 
-  productCache.set(generalSearchUrl, 'Autre_vendeur'); 
-  productCache.set(generalSearchUrl, 'promo'); 
-  productCache.set(generalSearchUrl, 'vente_flash'); 
+  productCache.set(generalSearchUrl, 'EDP');
+  productCache.set(generalSearchUrl, 'Autre_vendeur');
+  productCache.set(generalSearchUrl, 'promo');
+  productCache.set(generalSearchUrl, 'vente_flash');
 
   productCache.set('https://www.amazon.fr/s?k=pas+cher', '1euro');
   productCache.set('https://www.amazon.fr/s?k=pas+cher', '2euro');
@@ -102,27 +100,17 @@ async function startMonitoring() {
 
   logMessage(`Nombre d'URLs dans le cache : ${productCache.size}`);
 
-  while (true) {
-    await monitorAmazonProducts();
-    let delay = Math.floor(Math.random() * (MAX_DELAY - MIN_DELAY)) + MIN_DELAY;
-    logMessage(`Pause de ${delay / 5000} secondes avant la prochaine vérification...`);
-    await new Promise(resolve => setTimeout(resolve, delay));
-  }
-}
-
-// Fonction d'arrêt
-function stopMonitoring() {
-  logMessage('Moniteur arrêté.');
+  await monitorAmazonProducts();
 }
 
 // À l'initialisation du bot
 client.once('ready', () => {
   logMessage(`Connecté en tant que ${client.user.tag}`);
-  loadCache(); 
-  startMonitoring(); 
+  loadCache();
+  startMonitoring();
 });
 
-// Surveillance des produits Amazon
+// Surveillance des produits Amazon avec une pause de 2 minutes entre chaque URL
 async function monitorAmazonProducts() {
   if (productCache.size === 0) {
     logMessage('Aucune URL de produit trouvée dans le cache. Veuillez ajouter des produits à surveiller.');
@@ -130,7 +118,8 @@ async function monitorAmazonProducts() {
   }
 
   logMessage('Début de la surveillance des produits Amazon...');
-  const promises = [...productCache.entries()].map(async ([url, category]) => {
+
+  for (const [url, category] of productCache.entries()) {
     try {
       logMessage(`Tentative de scraping de l'URL : ${url} pour la catégorie : ${category}`);
       const html = await fetchAmazonPage(url);
@@ -143,8 +132,11 @@ async function monitorAmazonProducts() {
     } catch (error) {
       logMessage(`Erreur lors de la récupération des produits de l'URL ${url}: ${error.message}`);
     }
-  });
-  await Promise.all(promises);
+
+    logMessage(`Pause de 2 minutes avant de scraper l'URL suivante...`);
+    await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_URLS)); // Pause de 2 minutes
+  }
+
   logMessage('Surveillance des produits terminée.');
 }
 
@@ -202,61 +194,7 @@ async function monitorPage(url, page, maxPages, category) {
   }
 }
 
-// Vérification de prix
-function isOtherSellerBetter($, element) {
-  const otherSellerPriceText = $(element).find('.olpOfferPrice').first().text();
-  if (otherSellerPriceText) {
-    const otherSellerPrice = parseFloat(otherSellerPriceText.replace(/\s/g, '').replace(',', '.'));
-    const mainPriceText = $(element).find('.a-price-whole').first().text();
-    const mainPrice = parseFloat(mainPriceText.replace(/\s/g, '').replace(',', '.'));
-    return otherSellerPrice < mainPrice;
-  }
-  return false;
-}
-
-// Vérification promo
-function isPromo($, element) {
-  return $(element).find('.a-price .priceBadging').length > 0;
-}
-
-// Vérification coupon
-function hasMultipleCoupons($, element) {
-  return $(element).find('.couponBadge').length > 1;
-}
-
-// Vérification vente flash
-function isFlashSale($, element) {
-  return $(element).find('.a-deal-badge').length > 0;
-}
-
-// Envoi du produit dans le salon
-function sendProductToChannel(title, price, oldPrice, discountPercentage, url, image, category) {
-  const channelId = channelCategories[category];
-  const channel = client.channels.cache.get(channelId);
-
-  if (channel) {
-    const embed = new EmbedBuilder()
-      .setColor('#0099ff')
-      .setTitle(title)
-      .setURL(url)
-      .setDescription(discountPercentage > 0 ? `Réduction de ${Math.round(discountPercentage)}%` : '')
-      .setThumbnail(image)
-      .addFields(
-        { name: 'Prix actuel', value: `${price}€`, inline: true },
-        { name: 'Prix habituel', value: `${oldPrice}€`, inline: true },
-        { name: 'Lien', value: `[Acheter maintenant](${url})`, inline: true }
-      )
-      .setTimestamp();
-
-    channel.send({ embeds: [embed] })
-      .then(() => logMessage(`Produit envoyé avec succès dans le salon ${category}: ${title}`))
-      .catch(err => logMessage(`Erreur lors de l'envoi dans le salon ${category}: ${err.message}`));
-  } else {
-    logMessage(`Le salon ${category} avec l'ID ${channelId} n'a pas été trouvé ou le bot n'a pas la permission.`);
-  }
-}
-
-// Gestion des erreurs 503 et récupération des pages
+// Fonction pour récupérer les pages Amazon avec gestion des erreurs et User-Agent aléatoire
 async function fetchAmazonPage(url, retries = 0) {
   if (!url || url.trim() === '') {
     logMessage(`Erreur: URL vide ou incorrecte: ${url}`);
@@ -281,34 +219,15 @@ async function fetchAmazonPage(url, retries = 0) {
       logMessage(`Code d'erreur HTTP : ${error.response.status}`);
     }
     if (retries < 5) {
-      const delay = 10000 * (retries + 1); // Ajout d'un délai croissant avant chaque nouvelle tentative
+      const delay = 10000 * (retries + 1);
       logMessage(`Nouvelle tentative pour accéder à ${url}, tentative ${retries + 1} après ${delay / 1000} secondes`);
-      await new Promise(resolve => setTimeout(resolve, delay)); // Attendre avant de réessayer
+      await new Promise(resolve => setTimeout(resolve, delay));
       return fetchAmazonPage(url, retries + 1);
     }
     logMessage(`Échec après plusieurs tentatives pour accéder à ${url}: ${error.message}`);
     return null;
   }
 }
-
-// Fonction pour ajouter manuellement un produit à surveiller via la commande -add_deal
-client.on('messageCreate', async (message) => {
-  const member = message.member;
-
-  if (message.content.startsWith('-add_deal')) {
-    const args = message.content.split(' ');
-    const productUrl = args[1];
-    const maxPrice = parseFloat(args[2]);
-
-    if (!productUrl || isNaN(maxPrice)) {
-      message.reply('Veuillez spécifier une URL et un prix maximum.');
-      return;
-    }
-
-    dealWatchList.set(productUrl, maxPrice);
-    message.reply(`Produit ajouté pour surveillance : ${productUrl} avec prix maximum de ${maxPrice}€.`);
-  }
-});
 
 // Fonction pour loguer des messages dans le salon "logs"
 function logMessage(message) {
