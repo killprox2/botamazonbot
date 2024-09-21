@@ -14,19 +14,19 @@ const client = new Client({
 });
 
 // Rôles réservés
-const ADMIN_ROLE_ID = '1286008484776775753'; // Remplacez par l'ID du rôle administrateur
-const PREMIUM_ROLE_ID = 'ID_DU_ROLE_PREMIUM'; // Remplacez par l'ID du rôle premium
-const MODO_ROLE_ID = 'ID_DU_ROLE_MODO'; // Remplacez par l'ID du rôle modo
-const VISITEUR_ROLE_ID = 'ID_DU_ROLE_VISITEUR'; // Remplacez par l'ID du rôle visiteur
+const ADMIN_ROLE_ID = '1286008484776775753'; 
+const PREMIUM_ROLE_ID = 'ID_DU_ROLE_PREMIUM'; 
+const MODO_ROLE_ID = 'ID_DU_ROLE_MODO'; 
+const VISITEUR_ROLE_ID = 'ID_DU_ROLE_VISITEUR'; 
 
 // Gestion des rôles par réaction d'emoji
 const roleAssignments = {
-  '💰': '1286277846754525194', // EDP
-  '📦': '1286277915515949096', // Autre vendeur
-  '🟢': '1286277613559742538', // 2€
-  '🔵': '1286277434450120714', // 1€
-  '🔥': '1286277883781709824', // Promo
-  '⚡': '1286306479275511890'  // Vente flash
+  '💰': '1286277846754525194', 
+  '📦': '1286277915515949096', 
+  '🟢': '1286277613559742538', 
+  '🔵': '1286277434450120714', 
+  '🔥': '1286277883781709824', 
+  '⚡': '1286306479275511890'
 };
 
 // Catégories des salons
@@ -45,19 +45,16 @@ const channelCategories = {
   'enfant': 'ID_DU_SALON_ENFANT'
 };
 
-// Configuration dynamique des paramètres du bot
+// Paramètres du bot
 let MAX_PAGES = 5;
-let CHECK_INTERVAL = 600000; // 10 minutes (600 000 millisecondes)
+let MIN_DELAY = 60000;  // 1 minute en millisecondes
+let MAX_DELAY = 300000; // 5 minutes en millisecondes
 
 const productCache = new Map();
-const dealWatchList = new Map(); // Liste des "deals" à surveiller manuellement
-const userNotifications = new Map(); // Map pour les préférences utilisateur
-const logsChannelId = '1285977835365994506'; // Ajoutez l'ID de votre salon de logs ici
+const dealWatchList = new Map(); 
+const logsChannelId = '1285977835365994506'; 
 
-let monitoringInterval;
-let dealInterval;
-
-// Charger le cache à partir d'un fichier
+// Charger le cache
 function loadCache() {
   if (fs.existsSync('cache.json')) {
     const data = fs.readFileSync('cache.json');
@@ -66,25 +63,22 @@ function loadCache() {
   }
 }
 
-// Sauvegarder le cache dans un fichier
+// Sauvegarder le cache
 function saveCache() {
   const data = JSON.stringify([...productCache]);
   fs.writeFileSync('cache.json', data);
 }
 
-// Fonction pour démarrer la surveillance
-function startMonitoring() {
+// Démarrer la surveillance
+async function startMonitoring() {
   logMessage('Démarrage de la surveillance des produits Amazon...');
+  const generalSearchUrl = 'https://www.amazon.fr/s?k=';
 
-  // Surveillance avancée sur tout Amazon pour EDP, Autre-vendeur, Promo, et Vente-flash
-  const generalSearchUrl = 'https://www.amazon.fr/s?k='; // Recherche générale
+  productCache.set(generalSearchUrl, 'EDP'); 
+  productCache.set(generalSearchUrl, 'Autre_vendeur'); 
+  productCache.set(generalSearchUrl, 'promo'); 
+  productCache.set(generalSearchUrl, 'vente_flash'); 
 
-  productCache.set(generalSearchUrl, 'EDP'); // Recherche générale pour EDP
-  productCache.set(generalSearchUrl, 'Autre_vendeur'); // Recherche générale pour Autre-vendeur
-  productCache.set(generalSearchUrl, 'promo'); // Recherche générale pour Promo
-  productCache.set(generalSearchUrl, 'vente_flash'); // Recherche générale pour Vente-flash
-
-  // Ajouter des URL spécifiques à surveiller pour d'autres catégories
   productCache.set('https://www.amazon.fr/s?k=pas+cher', '1euro');
   productCache.set('https://www.amazon.fr/s?k=pas+cher', '2euro');
   productCache.set('https://www.amazon.fr/s?k=electromenager', 'electromenager');
@@ -92,26 +86,27 @@ function startMonitoring() {
   productCache.set('https://www.amazon.fr/s?k=livre', 'livre');
   productCache.set('https://www.amazon.fr/s?k=jouet', 'jouet');
   productCache.set('https://www.amazon.fr/s?k=enfant', 'enfant');
-  
+
   logMessage(`Nombre d'URLs dans le cache : ${productCache.size}`);
 
-  monitoringInterval = setInterval(monitorAmazonProducts, CHECK_INTERVAL); // Surveillance toutes les 10 minutes
-  dealInterval = setInterval(monitorDeals, CHECK_INTERVAL); // Surveillance des deals toutes les 10 minutes
-  logMessage('Surveillance démarrée.');
+  while (true) {
+    await monitorAmazonProducts();
+    let delay = Math.floor(Math.random() * (MAX_DELAY - MIN_DELAY)) + MIN_DELAY;
+    logMessage(`Pause de ${delay / 5000} secondes avant la prochaine vérification...`);
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
 }
 
-// Fonction pour arrêter la surveillance
+// Fonction d'arrêt
 function stopMonitoring() {
-  clearInterval(monitoringInterval);
-  clearInterval(dealInterval);
   logMessage('Moniteur arrêté.');
 }
 
-// Ajoute cet événement pour démarrer le moniteur au lancement du bot
+// À l'initialisation du bot
 client.once('ready', () => {
   logMessage(`Connecté en tant que ${client.user.tag}`);
-  loadCache(); // Charger le cache au démarrage
-  startMonitoring(); // Démarre la surveillance immédiatement
+  loadCache(); 
+  startMonitoring(); 
 });
 
 // Surveillance des produits Amazon
@@ -140,7 +135,7 @@ async function monitorAmazonProducts() {
   logMessage('Surveillance des produits terminée.');
 }
 
-// Fonction pour surveiller les deals ajoutés manuellement
+// Surveillance des deals
 async function monitorDeals() {
   if (dealWatchList.size === 0) {
     logMessage('Aucun deal à surveiller.');
@@ -174,9 +169,9 @@ async function monitorDeals() {
   logMessage('Surveillance des deals terminée.');
 }
 
-// Fonction pour parcourir plusieurs pages de résultats Amazon
+// Scraping des pages
 async function monitorPage(url, page, maxPages, category) {
-  if (page > maxPages) return; // Limite le nombre de pages à parcourir
+  if (page > maxPages) return;
 
   const paginatedUrl = `${url}&page=${page}`;
   logMessage(`Scraping de la page ${page} de l'URL ${paginatedUrl} pour la catégorie ${category}`);
@@ -187,7 +182,7 @@ async function monitorPage(url, page, maxPages, category) {
     return;
   }
 
-  const $ = cheerio.load(html);  // Initialisation de la variable $ ici
+  const $ = cheerio.load(html);
 
   let productsFound = 0;
   $('.s-main-slot .s-result-item').each(async (i, element) => {
@@ -208,7 +203,6 @@ async function monitorPage(url, page, maxPages, category) {
 
       productsFound++;
 
-      // Gestion avancée pour les catégories spéciales
       if (category === 'EDP' && discountPercentage >= 80) {
         sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, category);
       } else if (category === 'Autre_vendeur' && isOtherSellerBetter($, element)) {
@@ -229,7 +223,7 @@ async function monitorPage(url, page, maxPages, category) {
   }
 }
 
-// Vérifie si un autre vendeur propose un meilleur prix
+// Vérification de prix
 function isOtherSellerBetter($, element) {
   const otherSellerPriceText = $(element).find('.olpOfferPrice').first().text();
   if (otherSellerPriceText) {
@@ -241,22 +235,22 @@ function isOtherSellerBetter($, element) {
   return false;
 }
 
-// Vérifie si un produit est en promo
+// Vérification promo
 function isPromo($, element) {
   return $(element).find('.a-price .priceBadging').length > 0;
 }
 
-// Détecte si plusieurs coupons sont applicables
+// Vérification coupon
 function hasMultipleCoupons($, element) {
   return $(element).find('.couponBadge').length > 1;
 }
 
-// Détecte si une vente flash est en cours
+// Vérification vente flash
 function isFlashSale($, element) {
   return $(element).find('.a-deal-badge').length > 0;
 }
 
-// Fonction pour envoyer un produit dans le salon approprié
+// Envoi du produit dans le salon
 function sendProductToChannel(title, price, oldPrice, discountPercentage, url, image, category) {
   const channelId = channelCategories[category];
   const channel = client.channels.cache.get(channelId);
@@ -275,7 +269,7 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
       )
       .setTimestamp();
 
-       channel.send({ embeds: [embed] })
+    channel.send({ embeds: [embed] })
       .then(() => logMessage(`Produit envoyé avec succès dans le salon ${category}: ${title}`))
       .catch(err => logMessage(`Erreur lors de l'envoi dans le salon ${category}: ${err.message}`));
   } else {
@@ -283,7 +277,7 @@ function sendProductToChannel(title, price, oldPrice, discountPercentage, url, i
   }
 }
 
-// Fonction pour récupérer les pages Amazon avec gestion des erreurs
+// Gestion des erreurs 503 et récupération des pages
 async function fetchAmazonPage(url, retries = 0) {
   if (!url || url.trim() === '') {
     logMessage(`Erreur: URL vide ou incorrecte: ${url}`);
@@ -353,5 +347,4 @@ process.on('SIGINT', () => {
   process.exit();
 });
 
-
-client.login(process.env.TOKEN); // Assurez-vous que le token est défini dans un fichier .env
+client.login(process.env.TOKEN);
