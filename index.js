@@ -125,10 +125,11 @@ async function monitorAmazonProducts() {
       const html = await fetchAmazonPage(url);
       if (html) {
         logMessage(`Scraping réussi pour l'URL : ${url}`);
-        if (url !== 'https://www.amazon.fr/deals') { // Ne pas paginer pour /deals
+        // Ne pas paginer pour l'URL des deals
+        if (url !== 'https://www.amazon.fr/deals') {
           await monitorPage(url, 1, MAX_PAGES, category);
         } else {
-          // Scraper uniquement la première page
+          // Scraper uniquement la première page pour cette URL
           await monitorPage(url, 1, 1, category);
         }
       } else {
@@ -149,7 +150,8 @@ async function monitorAmazonProducts() {
 async function monitorPage(url, page, maxPages, category) {
   if (page > maxPages) return;
 
-  const paginatedUrl = `${url}&page=${page}`;
+  // Ne pas modifier l'URL pour les deals
+  const paginatedUrl = url === 'https://www.amazon.fr/deals' ? url : `${url}&page=${page}`;
   logMessage(`Scraping de la page ${page} de l'URL ${paginatedUrl} pour la catégorie ${category}`);
 
   const html = await fetchAmazonPage(paginatedUrl);
@@ -194,7 +196,7 @@ async function monitorPage(url, page, maxPages, category) {
   logMessage(`Produits trouvés sur la page ${page} pour la catégorie ${category} : ${productsFound}`);
   
   const nextPage = $('.s-pagination-next');
-  if (nextPage && !nextPage.hasClass('s-pagination-disabled')) {
+  if (nextPage && !nextPage.hasClass('s-pagination-disabled') && url !== 'https://www.amazon.fr/deals') {
     await monitorPage(url, page + 1, maxPages, category);
   }
 }
