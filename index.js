@@ -83,7 +83,7 @@ function saveCache() {
 // Démarrer la surveillance
 async function startMonitoring() {
   logMessage('Démarrage de la surveillance des produits Amazon...');
-  const generalSearchUrl = 'https://www.amazon.fr/s?k=';
+  const generalSearchUrl = 'https://www.amazon.fr/s?k=all';
 
   productCache.set(generalSearchUrl, 'EDP');
   productCache.set(generalSearchUrl, 'Autre_vendeur');
