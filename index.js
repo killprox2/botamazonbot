@@ -48,7 +48,7 @@ const channelCategories = {
 };
 
 // Paramètres du bot
-let MAX_PAGES = 10; // Modifier pour scrapper plus de pages
+let MAX_PAGES = 10;
 let DELAY_BETWEEN_URLS = 300000; // 5 minutes entre chaque requête
 let currentProxy = ''; // Stocker le proxy utilisé
 let proxyFailures = 0; // Compteur d'échecs pour le proxy actuel
@@ -115,20 +115,22 @@ async function startMonitoring() {
   logMessage('Démarrage de la surveillance des produits Amazon...');
   await getProxyFromProxyScrape(); // Obtenir un proxy avant de commencer
 
-  const generalSearchUrl = 'https://www.amazon.fr/deals';
+  // URL spécifique pour le salon "vente_flash"
+  const venteFlashUrl = 'https://www.amazon.fr/deals';
+  productCache.set(venteFlashUrl, 'vente_flash');
 
-  productCache.set(generalSearchUrl, 'EDP');
-  productCache.set(generalSearchUrl, 'Autre_vendeur');
-  productCache.set(generalSearchUrl, 'promo');
-  productCache.set(generalSearchUrl, 'vente_flash');
-
-  productCache.set('https://www.amazon.fr/s?k=pas+cher', '1euro');
-  productCache.set('https://www.amazon.fr/s?k=pas+cher', '2euro');
-  productCache.set('https://www.amazon.fr/s?k=electromenager', 'electromenager');
-  productCache.set('https://www.amazon.fr/s?k=entretien', 'entretien');
-  productCache.set('https://www.amazon.fr/s?k=livre', 'livre');
-  productCache.set('https://www.amazon.fr/s?k=jouet', 'jouet');
-  productCache.set('https://www.amazon.fr/s?k=enfant', 'enfant');
+  // Pour les autres catégories, recherche intelligente sur Amazon
+  const amazonSearchBaseUrl = 'https://www.amazon.fr/s?k=';
+  productCache.set(`${amazonSearchBaseUrl}electromenager`, 'electromenager');
+  productCache.set(`${amazonSearchBaseUrl}entretien`, 'entretien');
+  productCache.set(`${amazonSearchBaseUrl}livre`, 'livre');
+  productCache.set(`${amazonSearchBaseUrl}jouet`, 'jouet');
+  productCache.set(`${amazonSearchBaseUrl}enfant`, 'enfant');
+  productCache.set(`${amazonSearchBaseUrl}pas+cher`, '1euro');
+  productCache.set(`${amazonSearchBaseUrl}pas+cher`, '2euro');
+  productCache.set(`${amazonSearchBaseUrl}promo`, 'promo');
+  productCache.set(`${amazonSearchBaseUrl}Autre+vendeur`, 'Autre_vendeur');
+  productCache.set(`${amazonSearchBaseUrl}EDP`, 'EDP');
 
   logMessage(`Nombre d'URLs dans le cache : ${productCache.size}`);
 
@@ -142,7 +144,7 @@ client.once('ready', () => {
   startMonitoring();
 });
 
-// Surveillance des produits Amazon avec un délai plus long entre les requêtes
+// Surveillance des produits Amazon
 async function monitorAmazonProducts() {
   if (productCache.size === 0) {
     logMessage('Aucune URL de produit trouvée dans le cache. Veuillez ajouter des produits à surveiller.');
@@ -176,7 +178,7 @@ async function monitorAmazonProducts() {
 async function monitorPage(url, page, maxPages, category) {
   if (page > maxPages) return;
 
-  const paginatedUrl = url === 'https://www.amazon.fr/deals' ? url : `${url}&page=${page}`;
+  const paginatedUrl = url.includes('page=') ? url : `${url}&page=${page}`;
   logMessage(`Scraping de la page ${page} de l'URL ${paginatedUrl} pour la catégorie ${category}`);
 
   const html = await fetchAmazonPage(paginatedUrl);
@@ -205,7 +207,7 @@ async function monitorPage(url, page, maxPages, category) {
 
       productsFound++;
 
-      if (category === 'EDP' && discountPercentage >= 70) { // Modifier la réduction de 80% à 70%
+      if (category === 'EDP' && discountPercentage >= 70) {
         sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, category);
       } else if (category === 'Autre_vendeur' && isOtherSellerBetter($, element)) {
         sendProductToChannel(productTitle, price.toFixed(2), oldPrice.toFixed(2), discountPercentage, productUrl, productImage, category);
@@ -220,12 +222,18 @@ async function monitorPage(url, page, maxPages, category) {
   logMessage(`Produits trouvés sur la page ${page} pour la catégorie ${category} : ${productsFound}`);
 
   const nextPage = $('.s-pagination-next');
-  if (nextPage && !nextPage.hasClass('s-pagination-disabled') && url !== 'https://www.amazon.fr/deals') {
+  if (nextPage && !nextPage.hasClass('s-pagination-disabled')) {
     await monitorPage(url, page + 1, maxPages, category);
   }
 }
 
-// Fonction pour récupérer les pages Amazon avec un proxy, un agent HTTPS et un User-Agent aléatoire
+// Fonction pour identifier une vente flash
+function isFlashSale($, element) {
+  const badgeText = $(element).find('.dealBadge').text().trim();
+  return badgeText.includes('Vente Flash');
+}
+
+// Fonction pour récupérer les pages Amazon avec un proxy et un User-Agent aléatoire
 async function fetchAmazonPage(url, retries = 0) {
   if (!url || url.trim() === '') {
     logMessage(`Erreur: URL vide ou incorrecte: ${url}`);
@@ -257,7 +265,7 @@ async function fetchAmazonPage(url, retries = 0) {
     logMessage(`Erreur lors de la récupération de l'URL ${url}: ${error.message}`);
     proxyFailures++;
 
-    if (proxyFailures >= 2) { // Modifier le seuil d'échecs pour changer de proxy plus rapidement
+    if (proxyFailures >= 2) {
       logMessage(`Trop d'échecs avec le proxy ${currentProxy}, récupération d'un nouveau proxy...`);
       await getProxyFromProxyScrape();
       proxyFailures = 0;
