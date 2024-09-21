@@ -235,7 +235,8 @@ async function fetchAmazonPage(url, retries = 0) {
   const proxy = currentProxy ? { host: currentProxy.split(':')[0], port: currentProxy.split(':')[1] } : null;
   const httpsAgent = new https.Agent({
     rejectUnauthorized: false, // Ignore les certificats non autorisés (utile si les proxys ont des certificats non fiables)
-    minVersion: 'TLSv1.2' // Forcer l'utilisation de TLS 1.2
+    minVersion: 'TLSv1.2', // Forcer l'utilisation de TLS 1.2
+    timeout: 10000 // Augmenter le délai avant l'abandon pour les proxys lents
   });
 
   const options = {
@@ -244,7 +245,7 @@ async function fetchAmazonPage(url, retries = 0) {
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
     },
     proxy: proxy, // Utilisation du proxy aléatoire récupéré
-    httpsAgent // Forcer TLS 1.2
+    httpsAgent // Forcer TLS 1.2 avec un délai augmenté
   };
 
   try {
