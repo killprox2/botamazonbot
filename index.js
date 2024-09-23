@@ -5,8 +5,7 @@ const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers],
 });
 
-// Remplace par ton token Discord
-client.login('YOUR_BOT_TOKEN');
+client.login(process.env.TOKEN);
 
 // Rôles et salons
 const roles = {
@@ -281,5 +280,4 @@ setInterval(() => {
     checkManomanoDeals();
 }, 3600000); // Toutes les heures
 
-client.login(process.env.TOKEN);
 
