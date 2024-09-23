@@ -18,18 +18,18 @@ const roles = {
 };
 
 const channels = {
-    amazon: 'AmazonChannelID',
-    cdiscount: 'CdiscountChannelID',
-    auchan: 'AuchanChannelID',
-    manomano: 'ManomanoChannelID',
+    amazon: '1255863140974071893',
+    cdiscount: '1285939619598172232',
+    auchan: '1285969661535453215',
+    manomano: '1285953900066902057',
     electromenager: 'ElectromenagerChannelID',
     livre: 'LivreChannelID',
     enfant: 'EnfantChannelID',
     jouet: 'JouetChannelID',
     entretien: 'EntretienChannelID',
     electronique: 'ElectroniqueChannelID',
-    deal: 'DealChannelID',
-    logs: 'LogChannelID', // ID du salon où les logs seront envoyés
+    deal: '1285955371252580352',
+    logs: '1285977835365994506', // ID du salon où les logs seront envoyés
 };
 
 // Fonction pour envoyer des messages dans le salon de logs
